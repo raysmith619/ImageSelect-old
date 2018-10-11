@@ -1,0 +1,7 @@
+ 20181010_213514 Creating Log File Name: C:\Users\raysm\workspace\python\imageSelect\log\srtest_20181010_213514.sllog
+ 20181010_213514 loadTraceFlags: add_part,display,enter,is_over,highlight,leave,motion,move_part,adjust,moveplan,get_color,controls,get_colors,regno,region_rect
+ 20181010_213514 srtest.py 
+
+ 20181010_213514 args: Namespace(color_drop_blue=False, color_drop_green=False, color_drop_red=False, color_prog='random', height=400, nx=6, ny=5, show_id=False, show_moved=True, width=500)
+
+ 20181010_213514 srtest Set Button
