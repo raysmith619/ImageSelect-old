@@ -8,6 +8,7 @@ from tkinter import *
 from select_trace import SlTrace
 from trace_control import TraceControl
 from arrange_control import ArrangeControl
+from docutils.nodes import reference
 
 # Here, we are creating our class, Window, and inheriting from the Frame
 # class. Frame is a class from the tkinter module. (see Lib/tkinter/__init__)
@@ -19,16 +20,21 @@ class SelectWindow(Frame):
                  master=None,
                  title=None,
                  pgmExit=exit,
+                 arrange_selection=True,
                  games=[],          # text, proc pairs
                  actions=[],
                  ):
-        
+        """ Setup window controls
+        :arrange_selection: - incude arrangement controls
+                        default: True
+        """
         # parameters that you want to send through the Frame class. 
         Frame.__init__(self, master)   
 
         #reference to the master widget, which is the tk window                 
         self.title = title
         self.master = master
+        self.arrange_selection = arrange_selection
         self.pgmExit = pgmExit
         self.games = games
         self.actions = actions
@@ -52,6 +58,7 @@ class SelectWindow(Frame):
 
         # creating a menu instance
         menubar = Menu(self.master)
+        self.menubar = menubar      # Save for future reference
         self.master.config(menu=menubar)
 
         # create the file object)
@@ -59,13 +66,16 @@ class SelectWindow(Frame):
         filemenu.add_command(label="Open", command=self.File_Open_tbd)
         filemenu.add_command(label="Save", command=self.File_Save_tbd)
         filemenu.add_separator()
+        filemenu.add_command(label="Log", command=self.LogFile)
         filemenu.add_command(label="Properties", command=self.Properties)
         filemenu.add_separator()
         filemenu.add_command(label="Exit", command=self.pgmExit)
         menubar.add_cascade(label="File", menu=filemenu)
 
-                                # Arrange control
-        menubar.add_command(label="Arrange", command=self.arrange_control)
+                                # Arrange control - optoinal
+        if self.arrange_selection:
+            menubar.add_command(label="Arrange",
+                                 command=self.arrange_control)
 
                                 # Trace control
         menubar.add_command(label="Trace", command=self.trace_control)
@@ -76,10 +86,30 @@ class SelectWindow(Frame):
     def File_Save_tbd(self):
         print("File_Save_menu to be determined")
 
+    def add_menu_command(self, label=None, call_back=None):
+        """ Add simple menu command to top menu
+        :label: command label
+        :call_back: function to be called when selected
+        """
+        self.menubar.add_command(label=label, command=call_back)
+
+        
     def get_arc(self):
         """ Return reference to arrange control
         """
         return self.arc
+    
+    
+    def LogFile(self):
+        print("Display Log File")
+        abs_logName = SlTrace.getLogPath()
+        SlTrace.lg("Log file  %s"
+                    % abs_logName)
+        ###osCommandString = "notepad.exe %s" % abs_propName
+        ###os.system(osCommandString)
+        import subprocess as sp
+        programName = "notepad.exe"
+        sp.Popen([programName, abs_logName])
     
     
     def Properties(self):

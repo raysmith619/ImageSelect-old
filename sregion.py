@@ -176,27 +176,6 @@ class SelectReg(object):
             self.display_corner(part)
         elif part.is_edge():
             self.display_edge(part)
-                    
-            
-    def display_corner(self, corner):
-        """ Display corner on inside upper left corner
-        """
-        self.display_clear(corner)
-        if self.is_highlighted(corner):
-            """ Highlight given corner
-            :hand: Corner handle
-            :Returns: object tag for deletion
-            """
-            c1x,c1y,c3x,c3y = corner.get_rect(enlarge=True)
-            corner.display_tag = self.canvas.create_rectangle(
-                                c1x, c1y, c3x, c3y,
-                                fill=SelectPart.corner_fill_highlight)
-        else:
-            loc = corner.loc 
-            print("corner: %s" % str(loc))
-            c1x,c1y,c3x,c3y = corner.get_rect()
-            corner.display_tag = self.canvas.create_rectangle(
-                        c1x, c1y, c3x, c3y, fill=SelectPart.corner_fill)
     
     
     def display_text(self, position, **kwargs):
@@ -296,7 +275,11 @@ class SelectReg(object):
         """ Clear display of this handle
         """
         if handle.display_tag is not None:
-            self.canvas.delete(handle.display_tag)
+            if isinstance(handle.display_tag, list):
+                for tag in handle.display_tag:
+                    self.canvas.delete(tag)
+            else:
+                self.canvas.delete(handle.display_tag)
             handle.display_tag = None
         if handle.highlight_tag is not None:
             self.canvas.delete(handle.highlight_tag)
@@ -314,7 +297,7 @@ class SelectReg(object):
         print("edge: %s" % str(loc))
         if self.is_highlighted(edge):
             c1x,c1y,c3x,c3y = edge.get_rect(enlarge=True)
-            edge.highlighted_tag = self.canvas.create_rectangle(
+            edge.highlight_tag = self.canvas.create_rectangle(
                                 c1x, c1y, c3x, c3y,
                                 fill=SelectPart.edge_fill_highlight)
         else:

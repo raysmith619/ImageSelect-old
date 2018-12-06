@@ -3,23 +3,21 @@ Created on October 30, 2018
 
 @author: Charles Raymond Smith
 """
-from cmath import rect
 import os
 import sys
 import time
 from tkinter import *    
 import argparse
-from PIL import Image, ImageDraw, ImageFont
-from select_area import SelectArea
 from select_part import SelectPart
 from select_window import SelectWindow
-from select_color import SelectColor
+from select_play import SelectPlay
 from select_trace import SlTrace
 from arrange_control import ArrangeControl
 from select_region import SelectRegion
 from select_squares import SelectSquares
 from select_arrange import SelectArrange
-from docutils.nodes import row
+from player_control import PlayerControl
+from select_command import SelectCommand
 
 def pgm_exit():
     SlTrace.lg("Properties File: %s"% SlTrace.getPropPath())
@@ -30,6 +28,7 @@ def pgm_exit():
 nx = 5              # Number of x divisions
 ny = nx             # Number of y divisions
 show_id = False     # Display component id numbers
+show_score = True   # Display score / undo /redo
 width = 600         # Window width
 height = width      # Window height
 
@@ -53,7 +52,7 @@ btmove = 1.         #  Seconds between moves
 ew_display = 3
 ew_select = 5
 ew_standoff = 5
-
+trace = ""
 width = app.get_current_val("window_width", width)
 width = int(width)
 height = app.get_current_val("window_height", height)
@@ -70,6 +69,8 @@ parser.add_argument('--ew_standoff', type=int, dest='ew_standoff', default=ew_st
 parser.add_argument('--nx=', type=int, dest='nx', default=nx)
 parser.add_argument('--ny=', type=int, dest='ny', default=ny)
 parser.add_argument('--show_id', type=bool, dest='show_id', default=show_id)
+parser.add_argument('--show_score', type=bool, dest='show_score', default=show_score)
+parser.add_argument('--trace', dest='trace', default=trace)
 parser.add_argument('--width=', type=int, dest='width', default=width)
 parser.add_argument('--height=', type=int, dest='height', default=height)
 args = parser.parse_args()             # or die "Illegal options"
@@ -80,6 +81,10 @@ nx = args.nx
 ny = args.ny
 nsq = nx * ny
 show_id = args.show_id
+show_score = args.show_score
+trace = args.trace
+if trace:
+    SlTrace.setFlags(trace)
 width = args.width
 height = args.height
 ew_display= args.ew_display
@@ -97,146 +102,48 @@ n_arrange = 1               #number of major cycle for rearrange
 sqs = None
 
 sp = None
-players = None
+move_no_label = None
 
-        
+def check_mod(part, mod_type=None, desc=None):
+    global sp
+    """ called before and after each part modificatiom
+    """
+    sp.check_mod(part, mod_type=mod_type, desc=desc)
+
+
+def before_move(scmd):
+    global move_no_label
     
-class SelectPlayer:
-    def __init__(self, name=None, letter=None, color=None):
-        self.name = name
-        if letter is None:
-            letter = name[0].upper()
-        self.letter = letter
-        if color is None:
-            color = "black"
-        self.color = color
-        
-
-class SelectPlay:
-    def __init__(self, board=None,
-                 btmove=btmove, players=None, move_first=None):
-        self.board = board
-        self.btmove = btmove
-        self.players = players
-        self.player_index = 0
-        self.msg = None
-        if move_first is None:
-            self.player_index = 0
-        else:
-            self.player_index = move_first-1
-        self.move_no = 0
-        self.first_time = True       # flag showing first time
-        self.moves = []
-        board.add_new_edge_call(self.new_edge)
-
-
-    def annotate_squares(self, squares, player=None):
-        """ Annotate squares in board with players info
-        :squares: list of squares to annotate
-        :player: player whos info is used
-                Default: use current player
-        """
-        if player is None:
-            player = self.get_player()
-        for square in squares:
-            square.add_centered_text(player.letter, color=player.color)
-
-
-    def announce_player(self):
-        """ Announce current player
-        """
-        player = self.get_player()
-        text = "It's %s's turn." % player.name
-        SlTrace.lg(text)
-        self.do_message(text=text, color=player.color)
-
-
-    def do_message(self, text, color=None, font_size=40, time_sec=None):
-        """ Put message up. If time is present bring it down after time seconds    
-        :time: time for message
-                default: leave message there till next message
-        """
-        if self.msg is not None:
-            self.msg.destroy()
-            self.msg = None
-        self.msg = Message(mw, text=text)
-        self.msg.config(fg=color, bg='white',
-                        font=('times', font_size, 'italic'))
-        self.msg.pack()
-        if time_sec is not None and False:
-            SlTrace.lg("Leaving message up for %.1f seconds" % time_sec)
-            time.sleep(time_sec)
-            self.msg.destroy()
-            self.msg = None    
+    SlTrace.lg("before_move")
+    
+def after_move(scmd):
+    SlTrace.lg("after_move")
+    
+    
+def undo():
+    global move_no_label
+    SlTrace.lg("undoButton")
+    if sp is None:
+        return False
+    res = sp.undo()
+    return res
             
-            
-    def do_first_time(self):
-        self.announce_player()
-
-
-    def is_square_complete(self, edge, squares=None):
-        """ Determine if this edge completes a square(s)
-        :edge: - potential completing edge
-        :squares: list, to which any completed squares(regions) are added
-                Default: no regions are added
-        :returns: True iff one or more squares are completed
-        """
-        return self.board.is_square_complete(edge, squares=squares)
-
-
-    def new_edge(self, edge):
-        SlTrace.lg("New edge %s" % edge, "new_edge")
-        if self.first_time:
-            self.first_time = False
-        else:
-            self.move_no += 1
-        regions = []
-        if self.is_square_complete(edge, regions):
-            self.completed_square(edge, regions)
-        else:
-            self.get_next_player()      # Advance to next player
-        self.announce_player()
-
-    def get_next_player(self):
-        """ Get next player to move
-        """
-        self.player_index += 1
-        if self.player_index >= len(self.players):
-            self.player_index = 0
-        return self.get_player()
-
     
-    def get_player(self):
-        """ Get current player to move
-        """
-        player = self.players[self.player_index]
-        return player
-        
+def redo():
+    SlTrace.lg("redoButton")
+    if sp is None:
+        return False
+    else:
+        res = sp.redo()
+        return res
     
-    def completed_square(self, edge, squares):
-        player = self.get_player()
-        player_name = player.name
-        player_letter = player.letter
-        if len(squares) == 1:
-            text = ("%s completed a square with letter %s"
-                     % (player_name, player_letter))
-        else:
-            text = ("%s completed %d squares with letter %s"
-                    % (player_name, len(squares), player_letter))
-        SlTrace.lg(text)
-        self.annotate_squares(squares, player=player)    
-        self.do_message(text, font_size=20, time_sec=2)
-        text = ("%s gets another turn." % player_name)
-        SlTrace.lg(text)
-        self.do_message(text, font_size=20, time_sec=1)
-
-
-
+    
 def set_squares_button():
     global frame, sqs
     global width, height, nx, ny
     global n_rearrange_cycles, rearrange_cycle
     global players, sp
+    global move_no_label
     
     SlTrace.lg("Squares Set Button", "button")
     ###    if canvas is not None:
@@ -278,22 +185,71 @@ def set_squares_button():
         ylen = min_ylen
     frame = Frame(mw, width=width, height=height, bg="", colormap="new")
     frame.pack()
+    
+    
     canvas = Canvas(frame, width=width, height=height)
     canvas.pack()
             
-    players = []
-    players.append(SelectPlayer("Alex", letter="Ax", color="pink"))
-    players.append(SelectPlayer("Declan", color="blue"))
-    ###players.append(SelectPlayer("Avery", letter="Av", color="pink"))
     if sp is not None and sp.msg is not None:
         sp.msg.destroy()
         sp.msg = None
-    sqs = SelectSquares(canvas, nrows=ny, ncols=nx, width=width, height=height)
-    sp = SelectPlay(board=sqs, players=players, move_first=1)
-       
+    sqs = SelectSquares(canvas, nrows=ny, ncols=nx,
+                        width=width, height=height,
+                        check_mod=check_mod)
+    sp = SelectPlay(board=sqs, mw=mw, move_first=1, before_move=before_move,
+                    after_move=after_move)
+    if show_score:
+        score_window()
     sqs.display()        
     sp.do_first_time()
 
+def score_window():
+    """ Setup score /undo/redo window
+    """
+    global sp
+        
+    move_win_x0 = 750
+    move_win_y0 = 650
+    geo = "+%d+%d" % (move_win_x0, move_win_y0)
+    win = Tk()
+
+    win.geometry(geo)
+    move_frame = Frame(win)
+    move_frame.pack()
+    move_no_frame = Frame(move_frame)
+    move_no_frame.pack()
+    move_no = 0
+    move_no_str = "Move: %d" % move_no
+    move_font = ('Helvetica', '25')
+    move_no_label = Label(move_no_frame,
+                          text=move_no_str,
+                          font=move_font
+                          )
+    move_no_label.pack(side="left", expand=True)
+    ###move_no_label.config(width=2, height=1)
+    bw = 5
+    bh = 1
+    undo_font = ('Helvetica', '50')
+    undo_button = Button(master=move_frame, text="Undo",
+                        font=undo_font,
+                        command=undo)
+    undo_button.pack(side="left", expand=True)
+    undo_button.config(width=bw, height=bh)
+    redo_button = Button(master=move_frame, text="ReDo",
+                         font=undo_font,
+                        command=redo)
+    redo_button.pack(side="left", expand=True)
+    redo_button.config(width=bw, height=bh)
+
+    if sp is not None:
+        sp.setup_score_window(move_no_label=move_no_label)
+        sp.update_score_window()
+
+def update_score_window():
+    if sp is not None:
+        sp.update_score_window()    
+
+    
 def vs(val):
     if type(val) == str:
         return val
@@ -305,6 +261,7 @@ def new_edge(edge):
     :edge: added edge
     """
     SlTrace.lg("We have added an edge (%s)" % (edge), "new_edge")
+    ###sp.cmd_save(SelectCmd("new_edge", part=edge, player=sp.get_player()))
     sp.new_edge(edge)
 
 def new_game():
@@ -318,11 +275,13 @@ def new_game():
 def change_players():
     """ View/Change players
     """
-    SlTrace.lg("Control Players - not yet installed")
+    SlTrace.lg("PlayerControl")
+    sp.player_control.control_display()
     
     
 app.add_menu_command("NewGame", new_game)
 app.add_menu_command("Players", change_players)
+app.add_menu_command("Score", score_window)
 set_squares_button()
 
 mainloop()

@@ -211,7 +211,9 @@ class SlTrace:
         """
         if not SlTrace.trace(trace_flag, level):
             return
-        
+
+        if re.match(r'^\s*$', msg):
+            return        
         try:
             cls.setupLogging()
         except:

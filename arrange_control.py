@@ -893,13 +893,6 @@ class ArrangeControl(Toplevel):
         
         return val
 
-
-    def get_prop_key(self, name):
-        """ Translate full  control name into full Properties file key
-        """
-        
-        key = self.CONTROL_NAME_PREFIX + "." + name
-        return key
  
     def get_prop_value(self, name, value):
         """ Get property value, if one, else use value.
@@ -993,6 +986,17 @@ class ArrangeControl(Toplevel):
         ctl_value = ctl_entry.ctl_widget.get()
         prop_key = self.get_prop_key(name)
         SlTrace.setProperty(prop_key, ctl_value)
+
+
+
+
+    def get_prop_key(self, name):
+        """ Translate full  control name into full Properties file key
+        """
+        
+        key = self.CONTROL_NAME_PREFIX + "." + name
+        return key
+
         
 if __name__ == '__main__':
     def report_change(flag, val, cklist=None):

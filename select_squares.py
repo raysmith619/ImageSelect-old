@@ -6,7 +6,10 @@ Creation and Manipulation of the grid (dots and squares)
 of the old squares game
 """
 from select_trace import SlTrace
+from select_error import SelectError
 from select_area import SelectArea
+from select_part import SelectPart
+from player_control import PlayerControl
 
 class SelectSquares(object):
     """
@@ -17,6 +20,8 @@ class SelectSquares(object):
     def __init__(self, canvas, nrows=10,
                   ncols=None,
                   width=None, height=None, tbmove=.1,
+                  check_mod=None,
+                  down_click_call=None,
                   highlight_limit=1):
         """
         :canvas: - canvas within we are placed
@@ -25,6 +30,8 @@ class SelectSquares(object):
         :width: window width
         :height: window height
         :tbmove: minimum time(seconds) between move detection
+        :check_mod: routine called, if present, before & after
+                part modification
         :highlight_limit: limit highlighting (seconds)
                 default: 1 (None - no limit)
         """
@@ -34,18 +41,23 @@ class SelectSquares(object):
         self.nrows = nrows
         if width is None:
             width = canvas.winfo_width()
+        self.width = width
         if height is None:
             height = canvas.winfo_height()
+        self.height = height
         self.drawn_lines = []           # lines drawn
             
         min_xlen = 10
         min_ylen = min_xlen
+        self.check_mod = check_mod
         self.tbmove = tbmove
         self.highlight_limit = highlight_limit
         
         rects =  []
         rects_rows = []         # So we can pass row, col
         rects_cols = []
+        self.down_click_call = down_click_call
+        
         
         def rn(val):
             return int(round(val))
@@ -77,6 +89,8 @@ class SelectSquares(object):
                 rects_cols.append(col)
         
         self.area = SelectArea(canvas, tbmove=self.tbmove,
+                               check_mod=self.check_mod,
+                               down_click_call=self.down_click_call,
                                highlight_limit=self.highlight_limit)
         ###SelectRegion.reset()
         for i, rect in enumerate(rects):
@@ -97,14 +111,51 @@ class SelectSquares(object):
                 part.set(edge_width_select=50,
                            edge_width_display=5,
                            on_highlighting=False,
+                           off_highlighting=False,      # TBD why not ???     
                            color="lightgreen")
-
-        self.area.add_down_call(self.down_click)        # Connect our processing
-        self.area.add_stroke_call(self.stroke_call)      # Treat stroke as down_click
+            else:
+                part.set(color='light slate gray')
+                top_edge = part.get_top_edge()
+                top_edge.row = part.row 
+                top_edge.col = part.col
+                right_edge = part.get_right_edge()
+                right_edge.row = part.row 
+                right_edge.col = part.col + 1
+                botom_edge = part.get_botom_edge()
+                botom_edge.row = part.row + 1 
+                botom_edge.col = part.col
+                left_edge = part.get_left_edge()
+                left_edge.row = part.row 
+                left_edge.col = part.col
         self.complete_square_call = None                # Setup for complete square call
         self.new_edge_call = None                       # Setup for new edge call
-        self.area.add_turned_on_part_call(self.new_edge)
-        
+        ###self.area.add_turned_on_part_call(self.new_edge)
+        self.player_control = PlayerControl(self, display=False)
+
+
+    def get_part(self, id):
+        """ Get basic part
+        :id: unique part id
+        :returns: part, None if not found
+        """
+        return self.area.get_part(id)
+                
+    
+    def get_parts_at(self, x, y, sz_type=SelectPart.SZ_SELECT):
+        """ Check if any part is at canvas location provided
+        If found list of parts
+        :Returns: SelectPart[]
+        """
+        return self.area.get_parts_at(x,y,sz_type=sz_type)
+
+
+
+    def get_xy(self):
+        """ get current mouse position (or last one recongnized
+        :returns: x,y on area canvas, None if never been anywhere
+        """
+        return self.area.get_xy()
+
     
     def add_complete_square_call(self, call_back):
         """ Add function to be called upon completed square
@@ -112,6 +163,13 @@ class SelectSquares(object):
         """
         self.complete_square_call = call_back
 
+
+    def add_down_click_call(self, call):
+        """ Add down click processing function
+        :call: down click processing function
+        """
+        self.area.add_down_click_call(call)
+        
     
     def add_new_edge_call(self, call_back):
         """ Add function to be called upon newly added edge
@@ -129,6 +187,12 @@ class SelectSquares(object):
             self.complete_square_call(edge, regions)
 
 
+    def set_down_click_call(self, down_click_call):
+        """ Direct down_click processing
+        """
+        self.down_click_call = down_click_call
+
+
     def is_square_complete(self, edge, squares=None):
         """ Determine if this edge completes a square(s)
         :edge: - potential completing edge
@@ -141,11 +205,25 @@ class SelectSquares(object):
         
     def new_edge(self, edge):
         """ Report new edge added
-        :edge: - edge that completed the region
+        :edge: - edge that was added
         """
         SlTrace.lg("SelectSquares.new_edge: edge=%s" % (edge), "new_edge")
         if self.new_edge_call is not None:
             self.new_edge_call(edge)
+        self.area.stroke_info.setup()      # Reset stroke search
+
+
+    def disable_moves(self):
+        """ Disable(ignore) moves by user
+        """
+        self.area.disable_moves()
+        
+        
+    def enable_moves(self):
+        """ Enable moves by user
+        """
+        self.area.enable_moves()
+
 
         
     def down_click(self, part, event=None):
@@ -154,6 +232,11 @@ class SelectSquares(object):
         :part: highlighted part
         :event: event if available
         :Returns: True if processing is complete
+        """
+        if self.down_click_call is not None:
+            return self.down_click_call(part, event=event)
+        
+        """ Self processing
         """
         if part.is_edge() and not part.is_turned_on():
             SlTrace.lg("turning on %s" % part, "turning_on")
@@ -169,12 +252,50 @@ class SelectSquares(object):
         return False
 
 
+    def player_control(self):
+        """ Setup player control
+        """
+        if self.player_control is None:
+            self.player_control = PlayerControl(self, display=False)
+        self.player_control.control_display()
+        
+
     def stroke_call(self, part=None, x=None, y=None):
         """ Call back from sel_area.add_stroke_call
         """
+        
         self.down_click(part)
         
             
     def display(self):
             self.area.display()
     
+
+    
+
+    def remove_parts(self, parts):
+        """ Remove deleted or changed parts
+        Only clears display, leaving part in place
+        :parts: list of parts to be removed
+        """
+        for part in parts:
+            d_part = self.area.get_part(id=part.id)
+            if d_part is None:
+                raise SelectError("No part(id=%d) found %s"
+                                   % (part.id, part))
+                continue
+            d_part.display_clear()
+            d_part.set(invisible=True)
+    
+    def insert_parts(self, parts):
+        """ Add new or changed parts
+        Replaces part of same id, redisplaying
+        :parts: list of parts to be env_added
+        """
+        for part in parts:
+            d_part = self.area.get_part(id=part.id)
+            if d_part is None:
+                raise SelectError("insert_parts: No part(id=%d) found %s"
+                                   % (part.id, part))
+                continue
+            self.area.set_part(part)

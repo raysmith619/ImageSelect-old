@@ -34,6 +34,8 @@ class SelectArrange:
         self.max_duration = None        
         if mw is None:
             mw = Tk()
+            mw.withdraw()       # Hide main window
+
         self.mw = mw
         """ Keep values that change figure structure
         before and outside reset

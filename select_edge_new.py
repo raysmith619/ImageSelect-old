@@ -19,14 +19,28 @@ class SelectEdge(SelectPart):
         self.loc = SelectLoc(rect=rect)
 
 
+    def show_on(self):
+        """ Show as "on"
+        """
+        self.display_clear()
+        c1x, c1y, c3x, c3y = self.get_rect()
+        self.display_tag = self.sel_area.canvas.create_rectangle(
+                            c1x, c1y, c3x, c3y,
+                            fill=self.color)
 
+
+    def show_oFF(self):
+        """ Show as "oFF"
+        """
+        self.display_clear()
+        
     
     def display(self):
         """ Display edge as a rectangle
         We leave room for the corners at each end
         Highlight if appropriate
         """
-        if self.invisible and not self.highlighted:
+        if self.invisible and not self.highlighted and not self.turned_on:
             return
         
         loc = self.loc
@@ -38,18 +52,21 @@ class SelectEdge(SelectPart):
                     self.highlight_tag = self.sel_area.canvas.create_rectangle(
                                         c1x, c1y, c3x, c3y,
                                         fill=SelectPart.edge_fill_highlight)
+                else:
+                    self.show_on()
             else:
                 if self.off_highlighting:
                     c1x,c1y,c3x,c3y = self.get_rect(enlarge=True)
                     self.highlight_tag = self.sel_area.canvas.create_rectangle(
                                         c1x, c1y, c3x, c3y,
                                         fill=SelectPart.edge_fill_highlight)
+                else:
+                    self.show_off()
         else:
-            self.display_clear()
-            c1x, c1y, c3x, c3y = self.get_rect()
-            self.display_tag = self.sel_area.canvas.create_rectangle(
-                                c1x, c1y, c3x, c3y,
-                                fill=self.color)
+            if self.turned_on:
+                self.show_on()
+            else:
+                self.show_off()()
         if SlTrace.trace("show_id"):
             dir_x, dir_y = self.edge_dxy()
             chr_w = 5

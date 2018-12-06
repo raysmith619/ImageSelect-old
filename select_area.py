@@ -4,6 +4,7 @@ Created on Aug 23, 2018
 @author: raysm
 """
 import math
+from datetime import datetime
 from cmath import rect
 from select_trace import SlTrace
     
@@ -13,13 +14,7 @@ from select_corner import SelectCorner
 from select_edge import SelectEdge
 from select_region import SelectRegion
 from select_mover import SelectMover, SelectMove, SelectMoveDisplay
-from PIL.ImageChops import offset
-"""
-General domain issue
-"""
-        
-        
-                    
+from select_stroke import SelectStroke                    
                      
 class SelectArea(object):
     """
@@ -28,25 +23,38 @@ class SelectArea(object):
     """
     
 
-    def __init__(self, canvas, image, rects=None,
-                 show_moved=False, show_id=False):
+    def __init__(self, canvas, image=None, rects=None,
+                show_moved=False, show_id=False,
+                highlight_limit=None,
+                check_mod=None,
+                down_click_call=None,
+                tbmove=.1):
         """
         Rectangular selected/ing region,
         :canvas: Canvas containing the region
-        :image: displayed in frame
+        :image: displayed in frame    Not necessary/used
         :rects: single, or list of Rectangles (upper left x,y), (lower right x,y)
                 each being a region
                 Default is no rectangles
+        :highlight_limit: Limt higlighting to time (seconds)
+                Default: no time limit
+        :check_mod: called, if present, before and after part is modified
+        :down_click_call: processes down clicks if present'
+                default: no remote processing
+        :tbmove: minimum time (seconds) between move recognition
         """
         self.parts = []          # Parts of scene, corners, edges, regions
         self.parts_by_id = {}    # By part id
+        self.parts_by_loc = {}      # By type, location: 
         """ hash/dictionary of parts by type, location
             type: edge, corner, region
             loc: (pt), (x,y)
                  (pt1 (upper right), pt2 (lower right)
         """
-        self.parts_by_loc = {}      # By type, location: 
-                                
+        self.image = image
+        self.check_mod = check_mod
+        self.tbmove = tbmove
+        self.highlight_limit = highlight_limit                        
         self.show_id = show_id
         self.show_moved = show_moved
         self.record_md = SelectMoveDisplay(self, show_moved=show_moved)
@@ -58,27 +66,45 @@ class SelectArea(object):
         self.selects = {}               # Select objects(handle)  REFERENCE
         self.motion_xy = None
         self.regions = []               # list of regions
+        self.down_click_call = down_click_call           # call for processing down events
+        self.stroke_info = SelectStroke()         # Any ongoing stroke
+        self.stroke_call = None    # Call back if stroke
         
         if rects is not None:
             if not isinstance(rects, list):
                 rects = [rects]         # list of one
             for rect in rects:
                 self.add_rect(rect)
-            
-            
         self.canvas.bind ("<ButtonPress-1>", self.down)
         self.canvas.bind ("<ButtonRelease-1>", self.up)
         self.canvas.bind ( "<Enter>", self.enter)
         self.canvas.bind ("<Leave>", self.leave)
+        self.enable_moves_ = True
+        
+        
+    def add_down_click_call(self, down_click_call):
+        """ Add processing function for down events
+        :down_click_call: processing routine for down click over highlighted part
+                    None - remove call function
+        """
+        self.down_click_call = down_click_call
+        
 
-
-    def add_rect(self, rect, color=None, row=None, col=None):
+    def add_rect(self, rect, color=None, row=None, col=None,
+                draggable_edge=True,
+                draggable_corner=True,
+                draggable_region=True,   
+                invisible_region=False,
+                invisible_edge=False,
+                invisible_corner=False):
         """ Add rectangle to object as another region
         """                
         rec_ps = [None] * 4
         ulX, ulY = rect[0][0], rect[0][1]
         lrX, lrY = rect[1][0], rect[1][1]
         sr = SelectRegion(self, rect=[(ulX,ulY),(lrX,lrY)],
+                        draggable=draggable_region,
+                        invisible=invisible_region,
                         color=color, row=row, col=col)
         self.regions.append(sr)         # Add region
         self.add_part(sr)       
@@ -92,21 +118,34 @@ class SelectArea(object):
                 pi2 = 0          # Ends at first
             pt1 = rec_ps[pi1]
             pt2 = rec_ps[pi2]
-            self.add_edge(sr, pt1, pt2)
+            self.add_edge(sr, pt1, pt2,
+                        draggable_edge=draggable_edge,
+                        draggable_corner=draggable_corner,
+                        invisible_edge=invisible_edge,
+                        invisible_corner=invisible_corner)
 
-    def add_edge(self, region, pt1, pt2):
+    def add_edge(self, region, pt1, pt2,
+                 draggable_edge=True,
+                 draggable_corner=True,
+                 invisible_edge=False,
+                 invisible_corner=False):
         """ Add edge handles to region
         Also adds corner handles
         """
         edge = self.get_edge_with(pt1, pt2)
         if edge is None:
-            edge = SelectEdge(self, rect=[pt1,pt2])
+            edge = SelectEdge(self, rect=[pt1,pt2],
+                            draggable=draggable_edge,
+                            invisible=invisible_edge)
             self.add_part(edge)
-        self.add_corners(region, [pt1, pt2], edge=edge)     # So we get corners
+        self.add_corners(region, [pt1, pt2], edge=edge,
+                        draggable=draggable_corner,
+                        invisible=invisible_corner)     # So we get corners
         region.add_connected(edge)
-        edge.add_connected(region)      # Connect region to edge
+        edge.add_adjacent(region)      # Connect region to edge
         
-    def add_corners(self, region, points, edge=None):
+    def add_corners(self, region, points, edge=None,
+                    draggable=True, invisible=False):
         """ Add corners to region
         :region: region to which to add corners
         :points: one or more corner locations
@@ -121,7 +160,9 @@ class SelectArea(object):
             if self.has_corner(point):
                 corner = self.get_corner_part(point[0], point[1])
             else:
-                corner = SelectCorner(self, point=point)
+                corner = SelectCorner(self, point=point,
+                                        draggable=draggable,
+                                        invisible=invisible)
             self.add_part(corner)       # Add new corners
             corner.add_connected(region)
                     
@@ -129,6 +170,14 @@ class SelectArea(object):
             if edge is not None:
                 corner.add_connected(edge)      # Connect edge to corner
                 edge.add_connected(corner)      # Connect corner to edge
+
+    
+    def add_turned_on_part_call(self, call_back):
+        """ Add function to be called upon if edge is turned on
+        :call_back: call back (part) - None - remove call back
+        """
+        self.turned_on_part_call = call_back
+
                     
     def has_corner(self, point):
         """ Check if corner already present in region
@@ -141,7 +190,28 @@ class SelectArea(object):
             if pt[0] == point[0] and pt[1] == point[1]:
                 return True     # Corner already present
         return False            # No such corner present
-    
+
+
+    def is_square_complete(self, part, squares=None):
+        """ Determine if this edge completes one or more square(s) region(s)
+        :part: - possibly completing edge
+        :squares: - any squares completed are appended to this list
+                default: no regions are appended
+        """
+        if part.is_edge():
+            SlTrace.lg("complete square testing %s" % part, "square_completion")
+            regions = part.get_adjacents()      # Look if we completed any square
+            ncomp = 0
+            for square in regions:
+                if square.is_complete():
+                    ncomp += 1
+                    if squares is not None:
+                        squares.append(square)
+            if ncomp > 0:
+                return True
+
+        return False
+
     
     def is_first_corner(self, point):
         """ Determine if this is the first point (equal to)
@@ -206,16 +276,42 @@ class SelectArea(object):
         
         return None     # No entry at this location
 
-    def display(self):
-        for part in self.parts:
-            self.display_set(part)
+    def display(self, parts=None):
+        """ Display parts list
+        :parts: list of parts to display
+                default: all  parts
+        """
+        if parts is None:
+            parts = self.parts
+        SlTrace.lg("\ndisplay %d parts" % (len(parts)), "display")
+        for part in self.display_order(parts):
+            part.display()
 
 
+    def display_order(self, parts):
+        """ return parts in display order: Do all regions, then edges, then corners
+         so corners are not blocked by regions
+        """
+        ordered = []
+        for part in parts:
+            if part.is_region():
+                ordered.append(part)
+        for part in parts:
+            if part.is_edge():
+                ordered.append(part)
+        for part in parts:
+            if part.is_corner():
+                ordered.append(part)
+        return ordered
+            
+                
+                
+                
     def display_set(self, part=None):
         if part.is_corner():
-            self.display_corner(part)
+            part.display()
         elif part.is_edge():
-            self.display_edge(part)
+            part.display()
         elif part.is_region():
             part.display()
                     
@@ -223,6 +319,8 @@ class SelectArea(object):
     def display_corner(self, corner):
         """ Display corner on inside upper left corner
         """
+        return corner.display()
+    
         self.display_clear(corner)
         if self.is_highlighted(corner):
             """ Highlight given corner
@@ -246,7 +344,46 @@ class SelectArea(object):
         """
         tag = self.canvas.create_text(position, **kwargs)
         return tag
-    
+
+    def get_parts(self, pt_type=None):
+        """ Get parts in figure
+        :pt_type: part type, default: all parts
+                "corner", "edge", "region"
+        """
+        parts = []
+        for part in self.parts:
+            if pt_type is None or pt_type == part.part_type:
+                parts.append(part)
+        return parts
+
+
+    def get_part(self, id):
+        """ Get basic part
+        :id: unique part id
+        :returns: part, None if not found
+        """
+        part = self.parts_by_id[id]
+        return part
+
+    def set_part(self, part):
+        """ Set part (preexisting) to new version
+        :part: new replacement
+        """
+        """ Updating other hashes - maybe we shold consider
+        only having one
+        """
+        pt = self.parts_by_id[part.id]
+        if pt is None:
+            SlTrace.lg("part %s(%d) is not in area - skipped"
+                       % (part, part.id))
+            return
+        
+        self.parts[pt.parts_index] = part
+        del self.parts_by_loc[pt.loc_key_]
+        self.parts_by_loc[part.loc_key()] = part 
+        self.parts_by_id[part.id] = part
+        part.display()
+                
     
     def get_parts_at(self, x, y, sz_type=SelectPart.SZ_SELECT):
         """ Check if any part is at canvas location provided
@@ -255,20 +392,24 @@ class SelectArea(object):
         """
         parts = []
         for part in self.parts:
+            if not isinstance(part, SelectPart):
+                SlTrace.lg("part(%s) is not SelectPart" % part)
             if part.is_over(x,y, sz_type=sz_type):
                 parts.append(part)
         if len(parts) > 1:
-            SlTrace.lg("get_parts at (%d, %d) sz_type=%d" % (x,y, sz_type))
+            SlTrace.lg("get_parts at (%d, %d) sz_type=%d" % (x,y, sz_type), "get_parts")
             for part in parts:
                 c1x,c1y,c3x,c3y = part.get_rect(sz_type=sz_type)
                 SlTrace.lg("    %s : c1x:%d, c1y:%d, c3x:%d, c3y:%d"
-                       % (part, c1x,c1y,c3x,c3y))
-            SlTrace.lg()
+                       % (part, c1x,c1y,c3x,c3y), "get_parts")
+            SlTrace.lg("", "get_parts")
             olap_rect = SelectPart.get_olaps(parts, sz_type=SelectPart.SZ_SELECT)
             if olap_rect is not None:
-                SlTrace.lg("Overlapping %d,%d, %d,%d"
-                   % (olap_rect[0][0], olap_rect[0][1], olap_rect[1][0], olap_rect[1][1]))
-                SlTrace.lg()
+                if SlTrace.trace("overlapping"):
+                    SlTrace.lg("Overlapping %d,%d, %d,%d"
+                       % (olap_rect[0][0], olap_rect[0][1],
+                          olap_rect[1][0], olap_rect[1][1]), "overlapping")
+                    SlTrace.lg("")
         return parts
 
 
@@ -367,7 +508,11 @@ class SelectArea(object):
         """ Clear display of this handle
         """
         if handle.display_tag is not None:
-            self.canvas.delete(handle.display_tag)
+            if isinstance(handle.display_tag):
+                for tag in handle.display_tag:
+                    self.canvas.delete(tag)
+            else:
+                self.canvas.delete(handle.display_tag)
             handle.display_tag = None
         if handle.highlight_tag is not None:
             self.canvas.delete(handle.highlight_tag)
@@ -385,7 +530,7 @@ class SelectArea(object):
         SlTrace.lg("edge: %s" % str(loc), "display")
         if self.is_highlighted(edge):
             c1x,c1y,c3x,c3y = edge.get_rect(enlarge=True)
-            edge.highlighted_tag = self.canvas.create_rectangle(
+            edge.highlight_tag = self.canvas.create_rectangle(
                                 c1x, c1y, c3x, c3y,
                                 fill=SelectPart.edge_fill_highlight)
         else:
@@ -408,18 +553,53 @@ class SelectArea(object):
             cx = (c1x+c3x)/2 + offset_x
             cy = (c1y+c3y)/2 + offset_y
             edge.name_tag = self.display_text((cx, cy), text=str(edge.id))
-
+    
+    
+    def check_pick_part(self, event):
+        """ Check for and process if part has been picked.  E.g., line/edge added to square
+        :returns: True iff found a pick
+        If so, and down_click_call has been set, we make the call
+        """
+        if self.has_highlighted():
+            for highlight in self.highlights.values():
+                part = highlight.part
+                if self.down_click_call is not None:
+                    res = self.down_click_call(part)
+                    if res:
+                        return res        # we've done the processing for this part
+        return False                        # No processing
+    
+    
 
     def down (self, event):
+        if SlTrace.trace("part_info"):
+            cnv = event.widget
+            x,y = cnv.canvasx(event.x), cnv.canvasy(event.y)
+            parts = self.get_parts_at(x,y)
+            if parts:
+                SlTrace.lg("x=%d y=%d" % (x,y))
+                for part in parts:
+                    SlTrace.lg("    %s\n%s" % (part, part.str_edges()))
+            
+        if not self.enable_moves_:
+            return                  # Low-level ignore
+
         self.is_down = True
         if self.inside:
             SlTrace.lg("Click in canvas event:%s" % event, "motion")
             cnv = event.widget
             x,y = cnv.canvasx(event.x), cnv.canvasy(event.y)
-            SlTrace.lg("x=%d y=%d" % (x,y))
+            SlTrace.lg("x=%d y=%d" % (x,y), "down")
+                
         if self.has_highlighted():
-            for highlight in self.highlights.values():
-                part = highlight.part
+            part_ids = list(self.highlights)
+            for part_id in part_ids:
+                part = self.parts_by_id[part_id]
+                if self.down_click_call is not None:
+                    res = self.down_click_call(part, event=event)
+                    if res:
+                        continue        # we've done the processing for this part
+                    
                 self.select_set(part)
                 if part.display_tag is None:
                     pt=str(part.part_type)
@@ -453,25 +633,50 @@ class SelectArea(object):
         self.motion_bind_id = self.canvas.bind("<Motion>", self.on_motion)
 
 
+    def disable_moves(self):
+        """ Disable(ignore) moves by user
+        """
+        self.enable_moves_ = False
+        
+        
+    def enable_moves(self):
+        """ Enable moves by user
+        """
+        self.enable_moves_ = True
+
+
+    def get_xy(self):
+        """ get current mouse position (or last one recongnized
+        :returns: x,y on area canvas, None if never been anywhere
+        """
+        return self.motion_xy
+
+
+
     def on_motion(self, event):
         cnv = event.widget
         x,y = cnv.canvasx(event.x), cnv.canvasy(event.y)
+        SlTrace.lg("on_motion: x,y=%d,%d" % (x,y), "on_motion")
+        if not self.enable_moves_:
+            return                  # Low-level ignore
+        
         prev_xy = self.motion_xy
         self.motion_xy = (x,y)
         if prev_xy is None:
             prev_xy = self.motion_xy
         if self.is_down:
             if self.has_selected():
-                parts = self.get_selected_parts()
-                self.record_move_setup()
-                for part in parts:
-                    xinc = x - prev_xy[0]
-                    yinc = y - prev_xy[1]
-                    SlTrace.lg("motion on(%s) at xy=(%d,%d) by xinc=%d yinc=%d"
-                           % (part.part_type, x,y, xinc, yinc), "motion")
-                    self.move_part(part, xinc, yinc)
-                    self.highlight_set(part)
-                self.record_move_display()
+                parts = self.get_selected_parts(only_draggable=True)
+                if len(parts) > 0:
+                    self.record_move_setup()
+                    for part in parts:
+                        xinc = x - prev_xy[0]
+                        yinc = y - prev_xy[1]
+                        SlTrace.lg("motion on(%s) at xy=(%d,%d) by xinc=%d yinc=%d"
+                               % (part.part_type, x,y, xinc, yinc), "motion")
+                        self.move_part(part, xinc, yinc)
+                        self.highlight_set(part)
+                    self.record_move_display()
         parts = self.get_parts_at(x,y, sz_type=SelectPart.SZ_SELECT)        # NOTE: this is reference
         if len(parts) > 0:
             ncheck = 3
@@ -484,29 +689,29 @@ class SelectArea(object):
             for part in parts:
                 if not part.is_region():
                     SlTrace.lg("motion over %s" % part, "is_over")
-                if SlTrace.trace("part_info"):
-                    part.display_info()
+                if SlTrace.trace("part_info_over"):
+                    part.display_info(tag="over:")
                 self.highlight_set(part, xy=(x,y))
+                self.stroke_check(part, x=x, y=y)
         else:
             if self.has_highlighted():    
                 self.highlight_clear()
             
             
-    def highlight_set(self, part, xy=None):
+    def highlight_set(self, part, xy=None,
+                       highlight_limit=None):
         """ highlight specified part
         Save handle in highlight to allow easy access
         Clear previous highlight, if one
-        
+        :highlight_limit: clear highlight after this (seconds)
+                    Default: self.highlight_limit
         """
-        if part.is_corner():
-            self.highlight_corner(part, xy=xy)
-        elif  part.is_edge():
-            self.highlight_edge(part, xy=xy)
-        elif  part.is_region():
-            ###self.highlight_region(part, xy=xy)
-            part.highlight()
-        else:
-            return
+        if highlight_limit is None:
+            highlight_limit = self.highlight_limit
+        if part.turned_on and not part.on_highlighting:
+            return                  # Don't highlight if turned on
+        
+        part.highlight_set(highlight_limit=highlight_limit)
 
     
     
@@ -558,12 +763,13 @@ class SelectArea(object):
         return False
 
 
-    def highlight_clear(self, parts=None, others=False):
+    def highlight_clear(self, parts=None, others=False, display=True):
         """ Clear highlighted parts
             Remove part form  highlights
             :parts:  parts to consider
             :others:   False - clear these parts
                         True - clear other parts
+            :display: display updated, default: True
         """
         if not self.has_highlighted():
             return
@@ -590,16 +796,7 @@ class SelectArea(object):
             parts = other_parts
                 
         for part in parts:
-            if part.id in self.highlights:
-                highlight_tag = part.highlight_tag
-                if highlight_tag is not None:
-                    self.canvas.delete(highlight_tag)     # Remove highlight figure
-                    part.highlight_tag = None
-                part.highlighted = False
-                if part.display_tag is None:
-                    self.display_set(part)                # reestablish original display
-                del self.highlights[part.id]
-                SlTrace.lg("highlight_clear %d: %s" % (part.id, part), "highlight")
+            part.highlight_clear(display=display)
 
         
     
@@ -655,24 +852,91 @@ class SelectArea(object):
         """
         if not isinstance(selects,list):
             selects = [selects]
-        for id in list(self.selects):
-            self.selects.pop(id)
-    
-    def get_selecteds(self):
-        """ Return list of selected info or [] if none
+        for part_id in list(self.selects):
+            self.selects.pop(part_id)
+
+
+    def add_stroke_call(self, call_back=None):
+        """ Add callback for completed stroke
+        :call_back: call(part=part, x=, y=)
         """
-        return self.selects.values()
+        self.stroke_call = call_back
+        
+        
+        
+    def stroke_check(self, part, x=None, y=None):
+        """ Check if user stroked part
+        Used for stroking edges on touch screen
+        in "squares" game
+        :part: inside this part
+        :x: - x coordinate
+        :y: - y coordinate
+        :returns: True iff got stroke
+        Detection starts self.btmove seconds after the
+        most recent 
+        """
+        
+        now = datetime.now()
+        time_diff = (now - self.stroke_info.prev_time).total_seconds()
+        if  time_diff < self.tbmove:
+            return
+
+        if self.stroke_info.in_stroke():
+            SlTrace.lg("in_stroke x=%d y=%d" % (x,y), "in_stroke")
+            if part.is_edge() and not self.stroke_info.same_part(part):
+                self.stroke_info.setup()
+                return
+            
+            SlTrace.lg("same stroke x=%d y=%d" % (x,y), "in_stroke")
+            if self.stroke_info.is_continued(part=part, x=x, y=y):
+                self.stroke_info.new_point(x,y)
+                if self.stroke_info.is_stroke():
+                    SlTrace.lg("got stroke x=%d y=%d\n" % (x,y), "in_stroke")
+                    if self.down_click_call is not None:
+                        res = self.down_click_call(part)
+                        self.stroke_info.setup()      # Reset
+                        return res
+                    
+        if part.is_edge():
+            self.stroke_info.setup(part, x=x, y=y)
+            
+        return False
+
+
+    def stroke_init(self, part=None, x=None, y=None):
+        if part is None:
+            self.stroke_info.setup()
+            return
+        
+        self.stroke_info.setup(part=part, x=x, y=y)
+
+                    
+    def get_selecteds(self, only_draggable=False):
+        """ Return list of selected info or [] if none
+        :only_draggable: True- include only if draggable
+                            default: False - all
+        """
+        sels = []
+        for part in self.selects.values():
+            if not only_draggable or part.draggable:
+                sels.append(part)
+        return sels
     
     
-    def get_selected_parts(self):
+    def get_selected_parts(self, only_draggable=False):
         """ Returns all selected parts
         [] if non selected
+        :only_draggable: True- include only if draggable
+                            default: False - all
         """
-        parts = self.get_selecteds()
+        parts = self.get_selecteds(
+            only_draggable=only_draggable)
         return parts
     
     
     def has_selected(self):
+        """ Check if any selected parts
+        """
         if bool(self.selects):
             return True
         return False
@@ -681,6 +945,7 @@ class SelectArea(object):
     def move_part(self, part, xinc, yinc):
         """ Move selected handle, adjusting connected parts
         """
+        
         self.display_clear(part)      # Clear display before moveing
         if part.is_region():
             self.move_region(part, xinc, yinc)
@@ -691,6 +956,12 @@ class SelectArea(object):
             self.move_corner(part, xinc, yinc)
         
         self.display_set(part)
+
+    
+    def move_announce(self):
+        import winsound
+        
+        winsound.Beep(100, 10)
 
 
     def move_edge(self, edge, xinc,  yinc, adjusts=None):
@@ -783,19 +1054,31 @@ class SelectArea(object):
         self.display_set(edge)
 
     def add_part(self, part):
-        """ Add new part to list
+        """ Add new part to area
+        :part: partially completed to add
+        Not added if already present
+        Hash updates and pointers added to part
+        We are considering adding this to the SelectPart
+        constructor but have, so far, refrained because of 
+        the possibility of having multiple lists as is the
+        fact in EnhancedModeler
         """
         if part.id in self.parts_by_id:
             return
         
         SlTrace.lg("add_part: %s" % part, "add_part")
-        self.parts.append(part)
-        self.parts_by_id[part.id] = part
+        """ Provide pointers to other entries
+        in the parts_by_id entry to aid do/undo
+        """
         loc_key = part.loc_key()
         if loc_key in self.parts_by_loc:
-            SlTrace.lg("add_part %s already present")
+            SlTrace.lg("add_part %s already present", "add_part")
             return
         
+        part.loc_key_ = loc_key
+        part.parts_index = len(self.parts)
+        self.parts.append(part)
+        self.parts_by_id[part.id] = part
         self.parts_by_loc[loc_key] = part
         
                             

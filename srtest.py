@@ -41,7 +41,7 @@ base_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
 SlTrace.setLogName(base_name)
 SlTrace.lg("%s %s\n" % (os.path.basename(sys.argv[0]), " ".join(sys.argv[1:])))
 ###SlTrace.setTraceFlag("get_next_val", 1)
-SlTrace.setTraceFlag("arrange_step", 1)
+SlTrace.setTraceFlag("part_info", 1)
 """ Flags for setup """
 app = None                  # Application window ref
 frame = None
@@ -230,6 +230,21 @@ def set_figure_button():
         col = rects_cols[i]
         col_rect = reg_cc.get_color()
         sr.add_rect(rect, color=col_rect, row=row, col=col)
+    s_width = 20
+    for part in sr.get_parts():
+        if part.is_corner():
+            part.set(display_shape="circle",
+            ###part.set(display_shape="square",
+                    color="blue",
+                    edge_width_display=s_width,
+                    edge_width_select=s_width,
+                    edge_width_enlarge=s_width*.1,
+                    )
+        elif part.is_edge():
+            part.set(
+                    edge_width_select=s_width,
+                    edge_width_enlarge=s_width*.1,
+                    )
 
     sr.display()        
     app.set_call("run", run_button)

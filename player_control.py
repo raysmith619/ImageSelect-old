@@ -20,123 +20,12 @@ from tkinter import *
 import random
 from select_error import SelectError
 from select_trace import SlTrace
-from builtins import str
-from select_dd_choice import SelectDDChoice
-from turtledemo.minimal_hanoi import play
-from matplotlib.rcsetup import _prop_validators
-
-class SelectPlayer:
-    id = 0          # Unique id
-    name = None
-    label = None
-    playting = False
-    color = "gray"
-    voice = False
-    help_play = False
-    pause = 0
-    npoints = 0
-    
-    def __init__(self,
-                 id = None,
-                 name = None,
-                 label = None,
-                 move = None,
-                 playing = False,
-                 color = "gray",
-                 color_bg = "white",
-                 voice = False,
-                 help_play = False,
-                 pause = 0.,
-                 npoints = 0
-                 ):
-        """ Player attributes
-        :id:   Unique id (count)
-            default: generate new id
-        :name: playter's name
-        :label: square labeling letter/string
-                default: Upercase first character of name
-        :playing: True - player is playing game
-                default: not playing
-        :move: move number 1 - first to play
-        :color:  color for name, label, message
-        :color_bg: background color
-                default: white
-        :voice:  True - add voice to player responses
-        :help_play: Help player
-                default: no help
-        :pause: Pause number of seconds before player play
-                Provides some delay before computer response
-        :npoints: Number of points in game
-                default: 0
-        """
-        if id is None:
-            SelectPlayer.id += 1
-            id = SelectPlayer.id
-        self.id = id
-        self.name = name
-        if label is None:
-            if self.name is not None:
-                label = self.name[0]
-        self.label = label
-        self.playing = playing
-        if move is None:
-            move = self.id
-        self.move = move
-        self.color = color
-        self.color_bg = color_bg
-        self.voice = voice
-        self.help_play = help_play
-        self.pause = pause
-        self.ctls = {}          # Dictionary of field control widgets
-        self.ctls_vars = {}     # Dictionary of field control widget variables
-
-
-    def get_prop_key(self, name):
-        """ Translate full  control name into full Properties file key
-        """
-        
-        key = PlayerControl.CONTROL_NAME_PREFIX + "." + str(self.id) + "." + name
-        return key
-
-
-    def get_val(self, field_name):
-        """ get value in data field, returning value
-        :field_name: - field name = use lower case
-        """
-        field = field_name.lower()
-        if hasattr(self, field):
-            return getattr(self, field)
-        
-        raise SelectError("SelectPlayer.get_val(%s) - no entry: %s"
-                           % (field_name, field))
-
-    def set_val_from_ctl(self, field_name):
-        """ Set player value from field
-        Also updates player value properties
-        :field_name: field name
-        """
-        if not hasattr(self, field_name):
-            raise SelectError("Player has no attribute %s" % field_name)
-        value = self.ctls_vars[field_name].get()
-        setattr(self, field_name, value)
-        self.set_prop_val(field_name)
-
-
-    def set_prop_val(self, field_name):
-        """ Update properties value for field, so that properties file
-        will contain the updated value
-        :field_name: field attribute name
-        """
-        prop_key = self.get_prop_key(field_name)
-        field_value = self.get_val(field_name)
-        prop_value = str(field_value)
-        SlTrace.setProperty(prop_key, prop_value)
+from select_player import SelectPlayer
 
     
 class PlayerControl(Toplevel):
-    CONTROL_NAME_PREFIX = "player_control"
     
-    def __init__(self, ctlbase, title=None, display=True):
+    def __init__(self, ctlbase=None, title=None, display=True):
         """ Display / Control of players
         :ctlbase: base control object
         
@@ -151,6 +40,7 @@ class PlayerControl(Toplevel):
             name                string
             label               string
             playing             bool
+            position            int
             mV                  int
             color               string (fill)
             voice               bool
@@ -166,9 +56,12 @@ class PlayerControl(Toplevel):
         """
         prop_keys = SlTrace.getPropKeys()
         player_pattern = r'(?:\.(\w+))'
-        pattern = self.CONTROL_NAME_PREFIX + player_pattern + player_pattern
+        pattern = (SelectPlayer.CONTROL_NAME_PREFIX
+                    + player_pattern + player_pattern)
         rpat = re.compile(pattern)
         self.players = {}   # Dictionary of SelectPlayer
+        self.cur_player = None   # Current player
+        
                             # by name
         self.call_d = []    # Call back routines, if any
         for prop_key in prop_keys:
@@ -176,7 +69,7 @@ class PlayerControl(Toplevel):
             if rmatch:
                 player_match = rmatch[0]
                 player_match_1 = rmatch[1]
-                player_id = rmatch[1]
+                player_id = int(rmatch[1])
                 player_field = rmatch[2]
                 prop_val = SlTrace.getProperty(prop_key)
                 
@@ -186,6 +79,8 @@ class PlayerControl(Toplevel):
                 else:
                     player = self.players[player_id]
                 player_attr = rmatch[2]
+                if player_attr == "move":
+                    player_attr = "position"
                 if not hasattr(player, player_attr):
                     raise SelectError("Unrecognized player attribute %s in %s"
                                       % (player_attr, prop_key))
@@ -268,7 +163,7 @@ class PlayerControl(Toplevel):
         """ fields in the order to present """        
         player_fields = ["name", "label",
                          "playing",
-                         "move",
+                         "position",
                          "color", "color_bg",
                          "voice", "help_play", "pause"]
         col_infos = []
@@ -298,6 +193,88 @@ class PlayerControl(Toplevel):
                             command=self.delete_player)
         delete_button.pack(side="left", expand=True)
 
+
+    def get_next_player(self, set_player=True):
+        """ get next candidate player
+        :set: True set as true default set as current player
+        """
+        SlTrace.lg("get_next_player, set_player=%s"
+                   % set_player, "execute")
+        if self.cur_player is None:
+            next_position = self.get_first_position()
+        else:
+            next_position = self.get_next_position(self.cur_player.position)
+        player = self.get_player(next_position)
+        
+        
+        if player is None:
+            raise SelectError("No player playing with next position: %d"
+                          % next_position)
+        if set_player:    
+            self.set_player(player)
+        return player
+    
+    
+    def get_first_position(self):
+        position = None
+        for player in self.players.values():
+            if player.playing:
+                if (player.position is not None
+                        and (position is None or position > player.position)):
+                    position = player.position
+         
+        if position is None:
+            raise SelectError("No players")
+        
+        return position
+    
+    
+    def get_next_position(self, position):
+        """ Get next position after given,
+        among playing players, wrapping if necessary
+        """
+        next_position = None
+        for player in self.players.values():
+            if player.playing and player.position is not None:
+                if next_position is None:
+                    if player.position > position:
+                        next_position = player.position
+                else:
+                    if player.position > position:
+                        if  player.position < next_position:
+                            next_position = player.position
+        if next_position is None:
+            next_position = self.get_first_position()
+
+        if next_position is None:
+            raise SelectError("No players")
+        
+        return next_position
+
+
+    def set_player(self, player):
+        """ Record player  as next player
+        """
+        self.cur_player = player
+
+        
+    
+    def get_player(self, position=None):
+        """ Get player / current player
+        :position: position number
+            default: current player
+        """
+        if position is not None:
+            for player in self.players.values():
+                if player.playing and player.position is not None:
+                    if position == player.position:
+                        return player
+            raise SelectError("No player for position %s" % position)
+        
+        if self.cur_player is None:
+            return self.get_next_player()
+        return self.cur_player
+    
 
     def set(self):
         """ Set info from form
@@ -387,8 +364,8 @@ class PlayerControl(Toplevel):
             self.set_player_frame_label(frame, player, value, width=width)
         elif field_name == "playing":
             self.set_player_frame_playing(frame, player, value, width=width)
-        elif field_name == "move":
-            self.set_player_frame_move(frame, player, value, width=width)
+        elif field_name == "position":
+            self.set_player_frame_position(frame, player, value, width=width)
         elif field_name == "color":
             self.set_player_frame_color(frame, player, value, width=width)
         elif field_name == "color_bg":
@@ -402,6 +379,17 @@ class PlayerControl(Toplevel):
         else:
             raise("Unrecognized player field_name: %s" % field_name)    
 
+    def get_num_playing(self):
+        """ Calculate number playing
+        """
+        nplaying = 0
+        for player in self.players.values():
+            if player.playing:
+                nplaying += 1
+        return nplaying
+    
+    
+            
 
     def set_player_frame_name(self, frame, player, value, width=None):
         content = StringVar()
@@ -427,13 +415,13 @@ class PlayerControl(Toplevel):
         player.ctls["playing"] = yes_button
         player.ctls_vars["playing"] = content
 
-    def set_player_frame_move(self, frame, player, value, width=None):
+    def set_player_frame_position(self, frame, player, value, width=None):
         content = IntVar()
         content.set(value)
         yes_button = Entry(frame, textvariable=content, width=width)
         yes_button.pack(side="left", expand=True)
-        player.ctls["move"] = yes_button
-        player.ctls_vars["move"] = content
+        player.ctls["position"] = yes_button
+        player.ctls_vars["position"] = content
 
     def set_player_frame_color(self, frame, player, value, width=None):
         content = StringVar()

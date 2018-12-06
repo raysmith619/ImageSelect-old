@@ -24,7 +24,6 @@ class SelectMove(object):
         self.delta_y = delta_y
         self.indexes = indexes
 
-
     def __str__(self):
         """ Provide reasonable view of move
         """
@@ -171,7 +170,9 @@ class SelectMover(object):
             self.delta_x = delta_x
         if delta_y is not None:
             self.delta_y = delta_y
-            
+        
+        displayed_parts = {}        # Parts to re display
+        SlTrace.lg("\nmoving: %d parts" % (len(self.moves)), "display")    
         for move in self.moves:
             self.sel_area.record_move(move)
             part = move.part
@@ -189,20 +190,21 @@ class SelectMover(object):
                 self.adjust_part(part, delta_x, delta_y, indexes=move.indexes)
             elif move_type == SelectMove.MT_WHOLE:
                 self.adjust_part(part, delta_x, delta_y)
-            self.display_set(part)
+            displayed_parts[part.id] = part
 
         """ Adjust affected regions:
             Assume they are only the regions connected to the moved parts
         """
-        region_d = {}
         for move in self.moves:
             connecteds = move.part.connecteds
             for part in connecteds:
                 if part.is_region():
-                    region_d[part.id] = part  # Adjust only once
-        for region_id in region_d:
-            region = region_d[region_id]
-            region.display()
+                    displayed_parts[part.id] = part  # Adjust only once
+                    reg_connecteds = part.connecteds    # Get things connected to region
+                    for reg_part in reg_connecteds:
+                        displayed_parts[reg_part.id] = reg_part     # affected by region redraw
+                    
+        self.display(parts=displayed_parts.values())
             
             
     def adjust_part(self, part, delta_x, delta_y, indexes=None):
@@ -218,6 +220,13 @@ class SelectMover(object):
     def display_set(self, part=None):
         self.sel_area.display_set(part=part)
 
+    def display(self, parts=None):
+        """ Display list of parts
+        :parts: list of parts to be displayed
+                default: all parts
+        """
+        self.sel_area.display(parts=parts)
+        
 
     def display_clear(self, handle):
         """ Clear display of this handle

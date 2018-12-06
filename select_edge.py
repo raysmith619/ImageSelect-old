@@ -1,8 +1,9 @@
 # select_edge.py        
-
+from select_trace import SlTrace
 from select_error import SelectError
 from select_loc import SelectLoc
 from select_part import SelectPart
+from docutils.nodes import Part
 
 class SelectEdge(SelectPart):
     width_display = 5      # Default edge display line width in pixels
@@ -13,11 +14,198 @@ class SelectEdge(SelectPart):
     fill_highlight = "purple"   # Default edge highlight color
 
     
-    def __init__(self, sel_area, rect=None):
-        SelectPart.__init__(self, sel_area, "edge", rect=rect)
+    def __init__(self, sel_area, rect=None, draggable=True, invisible=False):
+        SelectPart.__init__(self, sel_area, "edge", rect=rect,
+                            draggable=draggable, invisible=invisible)
         self.loc = SelectLoc(rect=rect)
 
 
+
+    
+    def display(self):
+        """ Display edge as a rectangle
+        We leave room for the corners at each end
+        Highlight if appropriate
+        """
+        if not self.turned_on:
+            self.display_clear()
+            
+        if self.invisible and not self.highlighted and not self.turned_on:
+            return
+        
+        loc = self.loc
+        SlTrace.lg("%s: %s at %s" % (self.part_type, self, str(loc)), "display")
+        if self.highlighted:
+            if self.turned_on:
+                if self.on_highlighting:
+                    c1x,c1y,c3x,c3y = self.get_rect(enlarge=True)
+                    self.highlight_tag = self.sel_area.canvas.create_rectangle(
+                                        c1x, c1y, c3x, c3y,
+                                        fill=SelectPart.edge_fill_highlight)
+            else:
+                if self.off_highlighting:
+                    c1x,c1y,c3x,c3y = self.get_rect(enlarge=True)
+                    self.highlight_tag = self.sel_area.canvas.create_rectangle(
+                                        c1x, c1y, c3x, c3y,
+                                        fill=SelectPart.edge_fill_highlight)
+                else:
+                    c1x,c1y,c3x,c3y = self.get_rect()
+                   
+        else:
+            self.display_clear()
+            c1x, c1y, c3x, c3y = self.get_rect()
+            if self.icolor is not None:     # Check if indicators on
+                self.display_indicator()
+            else:
+                c1x, c1y, c3x, c3y = self.get_rect()
+                self.display_tag = self.sel_area.canvas.create_rectangle(
+                                    c1x, c1y, c3x, c3y,
+                                    fill=self.color)
+        if SlTrace.trace("show_id"):
+            dir_x, dir_y = self.edge_dxy()
+            chr_w = 5
+            chr_h = chr_w*2
+            if dir_x != 0:      # sideways
+                offset_x = -len(str(self.id))*chr_w/2 + chr_w
+                offset_y = chr_h
+            if dir_y != 0:      # up/down
+                offset_x = len(str(self.id))*chr_w
+                offset_y = 0    
+        
+            cx = (c1x+c3x)/2 + offset_x
+            cy = (c1y+c3y)/2 + offset_y
+            self.name_tag = self.display_text((cx, cy), text=str(self.id))
+        if self.move_no is not None and SlTrace.trace("show_move"):
+            dir_x, dir_y = self.edge_dxy()
+            chr_w = 5
+            chr_h = chr_w*2
+            if dir_x != 0:      # sideways
+                offset_x = -len(str(self.move_no))*chr_w/2 + chr_w
+                offset_y = chr_h
+            if dir_y != 0:      # up/down
+                offset_x = len(str(self.move_no))*chr_w + 2
+                offset_y = 0    
+        
+            cx = (c1x+c3x)/2 + offset_x
+            cy = (c1y+c3y)/2 + offset_y
+            self.move_no_tag = self.display_text((cx, cy), text=str(self.move_no))
+            SlTrace.lg("    part showing move_no %s" % self)
+
+
+    def display_indicator(self):
+        """ Display edge with player indicator
+        """
+        on_length = 10
+        off_length = 5
+        tags = []
+        c1x, c1y, c3x, c3y = self.get_rect()
+        if self.sub_type() == "(h)":
+            lc1y = c1y
+            lc3y = c3y
+            lc1x = c1x
+            while lc1x < c3x:
+                lc3x = lc1x + on_length
+                if lc3x > c3x:
+                    lc3x = c3x      # cut to end
+                tag = self.sel_area.canvas.create_rectangle(
+                            lc1x, lc1y, lc3x, lc3y,
+                            fill=self.icolor)
+                tags.append(tag)
+                lc1x += on_length
+                if lc1x >= c3x:
+                    break
+                lc3x += off_length
+                if lc3x > c3x:
+                    lc3x = c3x
+                tag = self.sel_area.canvas.create_rectangle(
+                            lc1x, lc1y, lc3x, lc3y,
+                            fill=self.icolor2)
+                lc1x = lc3x+1
+                tags.append(tag)
+            self.display_tag = tags    
+        else: # vertical edge
+            lc1x = c1x
+            lc3x = c3x
+            lc1y = c1y
+            while lc1y < c3y:
+                lc3y = lc1y + on_length
+                if lc3y > c3y:
+                    lc3y = c3y      # cut to end
+                tag = self.sel_area.canvas.create_rectangle(
+                            lc1x, lc1y, lc3x, lc3y,
+                            fill=self.icolor)
+                tags.append(tag)
+                lc1y += on_length
+                if lc1y >= c3y:
+                    break
+                lc3y += on_length
+                if lc3y > c3y:
+                    lc3y = c3y
+                tag = self.sel_area.canvas.create_rectangle(
+                            lc1x, lc1y, lc3x, lc3y,
+                            fill=self.icolor2)
+                tags.append(tag)
+                lc1y = lc3y+1
+            self.display_tag = tags    
+
+
+    def is_left(self, edge):
+        """ Check if we are left of edge
+        """
+        c1x,_,c3x,_ = self.get_rect()
+        edge_c1x,_,edge_c3x,_ = edge.get_rect()
+        if c1x <= edge_c1x and c3x < edge_c3x:
+            return True
+        
+        return False
+
+
+    def is_right(self, edge):
+        """ Check if we are left of edge
+        """
+        c1x,_,c3x,_ = self.get_rect()
+        edge_c1x,_,edge_c3x,_ = edge.get_rect()
+        if c1x > edge_c1x and c3x > edge_c3x:
+            return True
+        
+        return False
+
+
+    def is_above(self, edge):
+        """ Check if we are above of edge
+        """
+        _,c1y,_,c3y = self.get_rect()
+        _,edge_c1y,_,edge_c3y = edge.get_rect()
+        if c1y < edge_c1y and c3y < edge_c3y:
+            return True
+        
+        return False
+
+
+    def is_below(self, edge):
+        """ Check if we are above of edge
+        """
+        _,c1y,_,c3y = self.get_rect()
+        _,edge_c1y,_,edge_c3y = edge.get_rect()
+        if c1y > edge_c1y and c3y > edge_c3y:
+            return True
+        
+        return False
+
+
+    def sub_type(self):
+        """ sub type v/h vertical/horizontal
+        """
+        edx,edy = self.edge_dxy()
+        if edx != 0 and edy == 0:
+            return "(h)"
+        
+        if edy != 0 and edx == 0:
+            return "(v)"
+        
+        return ""
+    
+    
     def get_nodes(self, indexes=None):
         """ Find nodes/points of part
         return pairs (index, node)
@@ -68,20 +256,24 @@ class SelectEdge(SelectPart):
         c3y = self.loc.coord[1][1]
         c1x,c1y,c3x,c3y = SelectLoc.order_ul_lr(c1x,c1y,c3x,c3y)
         """ Leave room at each end for corner """
+        corner1 = self.get_corner(c1x, c1y)
+        _, _, corner1_xsize, corner1_ysize = corner1.get_center_size()
+        corner3 = self.get_corner(c3x, c3y)
+        corner3_x, corner3_y, corner3_xsize, corner3_ysize = corner3.get_center_size()
         dir_x, dir_y = self.edge_dxy()
         wlen = self.get_edge_width(sz_type)/2
         if dir_y != 0:          # Check if in y direction
             if c1x >= wlen:     # Yes - widen the orthogonal dimension
                 c1x -= wlen
             c3x += wlen
-            c1y += wlen         # Yes - shorten ends to avoid corner
-            c3y -= wlen
+            c1y += corner1_ysize         # Yes - shorten ends to avoid corner
+            c3y -= corner3_ysize
         if dir_x != 0:          # Check if in x direction
             if c1y >= wlen:     # Yes - widen the orthogonal dimension
                 c1y -= wlen
             c3y += wlen
-            c1x += wlen         # Yes - shorten ends to avoid corner
-            c3x -= wlen
+            c1x += corner1_xsize         # Yes - shorten ends to avoid corner
+            c3x -= corner3_xsize
         if enlarge:
             wenlarge = SelectPart.edge_width_enlarge
             if dir_y != 0:
@@ -92,6 +284,27 @@ class SelectEdge(SelectPart):
                 c3y += wenlarge
                 
         return c1x,c1y,c3x,c3y
+
+
+    def get_corner(self,cx, cy):
+        """ Get corner closest to c1x,c1y
+        :cx: end of rectangle
+        :cy:  end of rectangle
+        """
+        min_corner = None
+        min_distance = None
+        corners = self.get_corners()
+        for corner in corners:
+            if min_corner is None or corner.distance(cx,cy) < min_distance:
+                min_corner = corner
+                min_distance = corner.distance(cx,cy) 
+        return min_corner
+    
+        
+    def highlight(self, display=True):
+        """ Highlight and display
+        """
+        self.highlight_set(display=True)    #Just to remind ourselves that we do the display
 
 
     
