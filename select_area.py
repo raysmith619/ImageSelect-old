@@ -3,17 +3,16 @@ Created on Aug 23, 2018
 
 @author: raysm
 """
-import math
 from datetime import datetime
 from cmath import rect
 from select_trace import SlTrace
     
 from select_error import SelectError
-from select_part import SelectPart, PartHighlight
+from select_part import SelectPart
 from select_corner import SelectCorner
 from select_edge import SelectEdge
 from select_region import SelectRegion
-from select_mover import SelectMover, SelectMove, SelectMoveDisplay
+from select_mover import SelectMover, SelectMoveDisplay
 from select_stroke import SelectStroke                    
                      
 class SelectArea(object):
@@ -64,7 +63,7 @@ class SelectArea(object):
         self.is_down = False
         self.highlights = {}            # Highlighted handles object REFERENCE
         self.selects = {}               # Select objects(handle)  REFERENCE
-        self.motion_xy = None
+        self.motion_xy = (-1,-1)
         self.regions = []               # list of regions
         self.down_click_call = down_click_call           # call for processing down events
         self.stroke_info = SelectStroke()         # Any ongoing stroke
@@ -357,32 +356,23 @@ class SelectArea(object):
         return parts
 
 
-    def get_part(self, id):
+    def get_part(self, id=None, type=None, sub_type=None, row=None, col=None):
         """ Get basic part
         :id: unique part id
+        :type: part type e.g., edge, region, corner
+        :sub_type: must match if present e.g. v for vertical, h for horizontal
+        :row:  part row
+        :col: part column
         :returns: part, None if not found
         """
-        part = self.parts_by_id[id]
-        return part
-
-    def set_part(self, part):
-        """ Set part (preexisting) to new version
-        :part: new replacement
-        """
-        """ Updating other hashes - maybe we shold consider
-        only having one
-        """
-        pt = self.parts_by_id[part.id]
-        if pt is None:
-            SlTrace.lg("part %s(%d) is not in area - skipped"
-                       % (part, part.id))
-            return
+        if id is not None:
+            part = self.parts_by_id[id]
+            return part
         
-        self.parts[pt.parts_index] = part
-        del self.parts_by_loc[pt.loc_key_]
-        self.parts_by_loc[part.loc_key()] = part 
-        self.parts_by_id[part.id] = part
-        part.display()
+        for part in self.parts:
+            if part.part_type == type and (sub_type is None or part.sub_type() == sub_type):
+                if part.row == row and part.col == col:
+                    return part
                 
     
     def get_parts_at(self, x, y, sz_type=SelectPart.SZ_SELECT):
@@ -647,7 +637,7 @@ class SelectArea(object):
 
     def get_xy(self):
         """ get current mouse position (or last one recongnized
-        :returns: x,y on area canvas, None if never been anywhere
+        :returns: x,y on area canvas, -1,-1 if never been anywhere
         """
         return self.motion_xy
 
@@ -797,46 +787,6 @@ class SelectArea(object):
                 
         for part in parts:
             part.highlight_clear(display=display)
-
-        
-    
-    def highlight_corner(self, corner, xy):
-        """ Highlight given corner
-        :handle: Corner handle
-        :Returns: object tag for deletion
-        """
-        c1x,c1y,c3x,c3y = corner.get_rect(enlarge=True)
-        tag = self.canvas.create_rectangle(
-                            c1x, c1y, c3x, c3y,
-                            fill=SelectPart.corner_fill_highlight)
-        corner.highlight_tag = tag
-        self.highlights[corner.id] = PartHighlight(corner, xy=xy)
-
-    
-    def highlight_edge(self, edge, xy):
-        """ Highlight given edge
-        :hand: Corner handle
-        :Returns: object tag for deletion
-        """
-        c1x,c1y,c3x,c3y = edge.get_rect(enlarge=True)
-        tag = self.canvas.create_rectangle(
-                            c1x, c1y, c3x, c3y,
-                            fill=SelectPart.edge_fill_highlight)
-        edge.highlight_tag = tag
-        self.highlights[edge.id] = PartHighlight(edge, xy=xy)
-
-    
-    def highlight_region(self, region, xy):
-        """ Highlight region
-        :region: Corner handle
-        :Returns: object tag for deletion
-        """
-        c1x,c1y,c3x,c3y = region.get_rect(enlarge=True)
-        tag = self.canvas.create_rectangle(
-                            c1x, c1y, c3x, c3y,
-                            fill=SelectPart.region_fill_highlight)
-        region.highlight_tag = tag
-        self.highlights[region.id] = PartHighlight(region, xy=xy)
         
         
     def select_set(self, part_id):

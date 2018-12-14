@@ -32,7 +32,7 @@ class SelectCommand:
         if self.command_manager is None:
             raise SelectError("No SelectCommandManager")
         self.no = self.command_manager.next_cmd_no()
-        self.prev_move_no = self.command_manager.prev_move_no()
+        self.prev_move_no = self.command_manager.get_prev_move_no()
         self.move_no = self.prev_move_no
         self.has_prompt = has_prompt
         self.move_no = self.command_manager.get_move_no()

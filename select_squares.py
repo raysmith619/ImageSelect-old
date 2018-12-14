@@ -10,6 +10,7 @@ from select_error import SelectError
 from select_area import SelectArea
 from select_part import SelectPart
 from player_control import PlayerControl
+from docutils.nodes import Part
 
 class SelectSquares(object):
     """
@@ -22,7 +23,7 @@ class SelectSquares(object):
                   width=None, height=None, tbmove=.1,
                   check_mod=None,
                   down_click_call=None,
-                  highlight_limit=1):
+                  highlight_limit=None):
         """
         :canvas: - canvas within we are placed
         :nrows: number of rows of squares default: 10
@@ -33,12 +34,13 @@ class SelectSquares(object):
         :check_mod: routine called, if present, before & after
                 part modification
         :highlight_limit: limit highlighting (seconds)
-                default: 1 (None - no limit)
+                default: None (None - no limit)
         """
         if ncols is None:
             ncols = nrows
         self.canvas = canvas
         self.nrows = nrows
+        self.ncols = ncols
         if width is None:
             width = canvas.winfo_width()
         self.width = width
@@ -110,10 +112,10 @@ class SelectSquares(object):
             elif part.is_edge():
                 part.set(edge_width_select=50,
                            edge_width_display=5,
-                           on_highlighting=False,
-                           off_highlighting=False,      # TBD why not ???     
+                           on_highlighting=True,
+                           off_highlighting=True,
                            color="lightgreen")
-            else:
+            elif part.is_region():
                 part.set(color='light slate gray')
                 top_edge = part.get_top_edge()
                 top_edge.row = part.row 
@@ -133,12 +135,15 @@ class SelectSquares(object):
         self.player_control = PlayerControl(self, display=False)
 
 
-    def get_part(self, id):
+    def get_part(self, id=None, type=None, sub_type=None, row=None, col=None):
         """ Get basic part
         :id: unique part id
+        :type: part type e.g., edge, region, corner
+        :row:  part row
+        :col: part column
         :returns: part, None if not found
         """
-        return self.area.get_part(id)
+        return self.area.get_part(id=id, type=type, sub_type=sub_type, row=row, col=col)
                 
     
     def get_parts_at(self, x, y, sz_type=SelectPart.SZ_SELECT):
@@ -298,4 +303,18 @@ class SelectSquares(object):
                 raise SelectError("insert_parts: No part(id=%d) found %s"
                                    % (part.id, part))
                 continue
-            self.area.set_part(part)
+            self.set_part(part)
+
+
+    def set_part(self, part):
+        """ Set base part.contents to values of Part
+        
+        :part: part structure with new values
+        """
+        pt = self.area.parts_by_id[part.id]
+        if pt is None:
+            SlTrace.lg("part %s(%d) is not in area - skipped"
+                       % (part, part.id))
+            return
+
+        pt.__dict__ = part.__dict__.copy()

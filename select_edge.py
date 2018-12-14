@@ -3,7 +3,9 @@ from select_trace import SlTrace
 from select_error import SelectError
 from select_loc import SelectLoc
 from select_part import SelectPart
-from docutils.nodes import Part
+from select_blinker_state import BlinkerState, BlinkerMultiState
+
+
 
 class SelectEdge(SelectPart):
     width_display = 5      # Default edge display line width in pixels
@@ -20,7 +22,6 @@ class SelectEdge(SelectPart):
         self.loc = SelectLoc(rect=rect)
 
 
-
     
     def display(self):
         """ Display edge as a rectangle
@@ -33,21 +34,26 @@ class SelectEdge(SelectPart):
         if self.invisible and not self.highlighted and not self.turned_on:
             return
         
+        c1x, c1y, c3x, c3y = self.get_rect()        # Vales are modified if appropriate
         loc = self.loc
         SlTrace.lg("%s: %s at %s" % (self.part_type, self, str(loc)), "display")
         if self.highlighted:
             if self.turned_on:
                 if self.on_highlighting:
+                    if self.icolor is not None:     # Check if indicators on
+                        self.display_indicator()
+                        self.blink(self.display_multi_tags)
+
+                else:
                     c1x,c1y,c3x,c3y = self.get_rect(enlarge=True)
                     self.highlight_tag = self.sel_area.canvas.create_rectangle(
                                         c1x, c1y, c3x, c3y,
                                         fill=SelectPart.edge_fill_highlight)
+                    self.blink(self.highlight_tag, off_fill="red")
             else:
                 if self.off_highlighting:
-                    c1x,c1y,c3x,c3y = self.get_rect(enlarge=True)
-                    self.highlight_tag = self.sel_area.canvas.create_rectangle(
-                                        c1x, c1y, c3x, c3y,
-                                        fill=SelectPart.edge_fill_highlight)
+                    self.display_indicator(fills=["purple", "darkgray", "orange"])
+                    self.blink(self.display_multi_tags)
                 else:
                     c1x,c1y,c3x,c3y = self.get_rect()
                    
@@ -57,7 +63,6 @@ class SelectEdge(SelectPart):
             if self.icolor is not None:     # Check if indicators on
                 self.display_indicator()
             else:
-                c1x, c1y, c3x, c3y = self.get_rect()
                 self.display_tag = self.sel_area.canvas.create_rectangle(
                                     c1x, c1y, c3x, c3y,
                                     fill=self.color)
@@ -89,17 +94,67 @@ class SelectEdge(SelectPart):
             cx = (c1x+c3x)/2 + offset_x
             cy = (c1y+c3y)/2 + offset_y
             self.move_no_tag = self.display_text((cx, cy), text=str(self.move_no))
-            SlTrace.lg("    part showing move_no %s" % self)
-
-
-    def display_indicator(self):
-        """ Display edge with player indicator
+            SlTrace.lg("    part showing move_no %s" % self, "show_move_print")
+        
+        
+    def blink(self, tagtags,
+                   on_time=None,
+                   off_time=None,
+                   off_fill="white"):
+        """ Set tag blinking
+        :tagtags: - single tag for on/off blinking
+                    or
+                    list of tag_lists for "ripple" blinking one after the next
+        :on_time:  on time in seconds
+        :off_time: off time in seconds default: on_time
+        :off_fill: fill for off time
         """
+        if isinstance(tagtags, list):
+            self.blink_multi(tagtags, on_time=on_time)
+        else:
+            on_fill = self.sel_area.canvas.itemcget(tagtags, "fill")
+            self.blinker = BlinkerState(part=self, tag=tagtags,
+                                            on_time=on_time, off_time=off_time,
+                                            on_fill=on_fill, off_fill=off_fill)
+            self.blinker.blink_on()      # Just to prime the delay
+
+
+    def blink_multi(self, tagtags, on_time=.25):
+        """ Blink list of tag lists rotating every on_time
+        :on_time: time for each display before rotating fill colors
+        """
+        self.blinker = BlinkerMultiState(part=self, tagtags=tagtags,
+                                        on_time=on_time)
+        self.blinker.blink_on_first()      # Just to prime the delay
+
+        
+
+    def display_indicator(self, fills=None):
+        """ Display edge with player indicator
+        fills[0], fills[1],...
+        :fills: fill colors
+                default: icolor, icolor2, icolor2
+                If icolor2 None - white
+                If icolor None - SelectPart.edge_fill_highlight
+        If len(fills) == 2 fills[2] == fills[1]
+        """
+        if fills is None:
+            fills = [self.icolor]
+        if fills[0] is None:
+            fills[0] = SelectPart.edge_fill_highlight
+        if len(fills) == 1:
+            fills.append(None)
+        if fills[1] is None:
+            fills[1] = "white"
+        if len(fills) == 2:
+            fills.append(fills[1])
+            
         on_length = 10
-        off_length = 5
+        off_length = 10
         tags = []
         c1x, c1y, c3x, c3y = self.get_rect()
-        if self.sub_type() == "(h)":
+        multi_tags = [[], [], []]                 # Multiple sets for ripple
+        if self.sub_type() == "h":
             lc1y = c1y
             lc3y = c3y
             lc1x = c1x
@@ -109,20 +164,33 @@ class SelectEdge(SelectPart):
                     lc3x = c3x      # cut to end
                 tag = self.sel_area.canvas.create_rectangle(
                             lc1x, lc1y, lc3x, lc3y,
-                            fill=self.icolor)
-                tags.append(tag)
+                            fill=fills[0], width=0, outline='')
+                multi_tags[0].append(tag)
+                
                 lc1x += on_length
                 if lc1x >= c3x:
                     break
-                lc3x += off_length
+                lc3x = lc1x + off_length
                 if lc3x > c3x:
                     lc3x = c3x
                 tag = self.sel_area.canvas.create_rectangle(
                             lc1x, lc1y, lc3x, lc3y,
-                            fill=self.icolor2)
+                            fill=fills[1], width=0, outline='')
+                multi_tags[1].append(tag)
+                
+                lc1x = lc3x
+                if lc1x >= c3x:
+                    break
+                lc3x = lc1x + off_length
+                if lc3x > c3x:
+                    lc3x = c3x
+                tag = self.sel_area.canvas.create_rectangle(
+                            lc1x, lc1y, lc3x, lc3y,
+                            fill=fills[2], width=0, outline='')
+                multi_tags[2].append(tag)
+                
                 lc1x = lc3x+1
-                tags.append(tag)
-            self.display_tag = tags    
+            self.display_multi_tags = multi_tags    
         else: # vertical edge
             lc1x = c1x
             lc3x = c3x
@@ -133,21 +201,35 @@ class SelectEdge(SelectPart):
                     lc3y = c3y      # cut to end
                 tag = self.sel_area.canvas.create_rectangle(
                             lc1x, lc1y, lc3x, lc3y,
-                            fill=self.icolor)
-                tags.append(tag)
+                            fill=fills[0], width=0, outline='')
+                multi_tags[0].append(tag)
+                
                 lc1y += on_length
                 if lc1y >= c3y:
                     break
-                lc3y += on_length
+                lc3y = lc1y + off_length
                 if lc3y > c3y:
                     lc3y = c3y
                 tag = self.sel_area.canvas.create_rectangle(
                             lc1x, lc1y, lc3x, lc3y,
-                            fill=self.icolor2)
-                tags.append(tag)
+                            fill=fills[1], width=0, outline='')
+                multi_tags[1].append(tag)
+                
+                lc1y = lc3y
+                if lc1y >= c3y:
+                    break
+                lc3y = lc1y + off_length
+                if lc3y > c3y:
+                    lc3y = c3y
+                tag = self.sel_area.canvas.create_rectangle(
+                            lc1x, lc1y, lc3x, lc3y,
+                            fill=fills[2], width=0, outline='')
+                multi_tags[2].append(tag)
+                
                 lc1y = lc3y+1
-            self.display_tag = tags    
-
+            self.display_multi_tags = multi_tags    
+        return
+    
 
     def is_left(self, edge):
         """ Check if we are left of edge
@@ -172,7 +254,7 @@ class SelectEdge(SelectPart):
 
 
     def is_above(self, edge):
-        """ Check if we are above of edge
+        """ Check if we are above of edge/part
         """
         _,c1y,_,c3y = self.get_rect()
         _,edge_c1y,_,edge_c3y = edge.get_rect()
@@ -198,10 +280,10 @@ class SelectEdge(SelectPart):
         """
         edx,edy = self.edge_dxy()
         if edx != 0 and edy == 0:
-            return "(h)"
+            return "h"
         
         if edy != 0 and edx == 0:
-            return "(v)"
+            return "v"
         
         return ""
     

@@ -13,7 +13,6 @@ from select_command_manager import SelectCommandManager
 from select_part import SelectPart
 from select_player import SelectPlayer
 from select_message import SelectMessage
-from docutils.nodes import Part
         
 
 class SelectPlay:
@@ -21,6 +20,7 @@ class SelectPlay:
                  btmove=.1, player_control=None, move_first=None,
                  before_move=None, after_move=None):
         """ Setup play
+        :board: playing board (SelectSquares)
         :before_move: function, if any, to call before move
         :after_move: function, if any, to call after move
         """
@@ -51,39 +51,250 @@ class SelectPlay:
         self.mw.bind("<KeyPress>", self.key_press)
         self.mw.bind("<KeyRelease>", self.key_release)
         ###self.board.set_down_click_call(self.down_click_made)
-
+        """ Keyboard command control
+        """
+        self.keycmd_edge = False
+        self.keycmd_args = []
+        self.keycmd_edge_mark = None        # Current marker edge
 
     def key_press(self, event):
         """ Keyboard key press processor
         """
+        if not SlTrace.trace("keycmd"):
+            return
+        
         ec = event.char
-        SlTrace.lg("key_press %s" % ec)
-        if SlTrace.trace("keycmd"):
-            if ec == "r":
-                self.redo()
+        ec_code = event.keycode
+        ec_keysym = event.keysym
+        SlTrace.lg("key press: '%s' %s(x%02X)" % (ec, ec_keysym, ec_code))
+        if ec == "j":       # Info (e.g. "i" for current edge position
+            edge = self.get_keycmd_edge()
+            if edge is None:
+                self.beep()
                 return
-            
-            elif ec == "u":
-                self.undo()
-                return
-            
                 
-            x,y = self.get_xy()
-            parts = self.get_parts_at(x,y)
-            if parts:
-                SlTrace.lg("x=%d y=%d" % (x,y))
-                for part in parts:
-                    if ec == "i":
-                        SlTrace.lg("    %s\n%s" % (part, part.str_edges()))
-                    elif ec == "d":
-                        part.display()
-                    elif ec == "c":
-                        part.display_clear()        # clear display
-                    elif ec == "n":                 # turn on
-                        part.turn_on()
-                    elif ec == "f":                 # turn off
-                        part.turn_off()
+            SlTrace.lg("    %s\n%s" % (edge, edge.str_edges()))
+            return
 
+        if ec_keysym == "Return":
+            edge = self.get_keycmd_edge()
+            if edge is None:
+                self.beep()
+                return
+            
+            if edge.is_turned_on():
+                self.beep()
+                return
+            
+            edge.highlight_clear()
+            return self.make_new_edge(edge=edge)
+            
+        if (ec_keysym == "Up"
+                or ec_keysym == "Down"
+                or ec_keysym == "Left"
+                or ec_keysym == "Right"
+                or ec_keysym == "plus"
+                or ec_keysym == "minus"):
+            return self.keycmd_move_edge(ec_keysym)
+
+        if self.keycmd_edge:
+            try:
+                arg = int(ec)
+            except:
+                self.keycmd_edge = False
+                return
+            
+            self.keycmd_args.append(arg)
+            if len(self.keycmd_args) >= 2:
+                self.make_new_edge(dir=self.keycmd_edge_dir, rowcol=self.keycmd_args)
+                self.keycmd_edge = False
+            return
+
+        if ec == "m":
+            return self.make_new_edge(edge=self.keycmd_edge_mark)
+            
+        if ec == "v" or ec == "h":
+            self.keycmd_edge = True
+            self.keycmd_edge_dir = ec
+            self.keycmd_args = []
+            return
+        
+        if ec == "r":
+            self.redo()
+            return
+        
+        if ec == "t":       # Do info on squares(regions) touching current edge
+            edge = self.get_keycmd_edge()
+            SlTrace.lg("%s" % edge.str_adjacents())
+            return
+        
+        if ec == "u":
+            self.undo()
+            return
+        
+            
+        x,y = self.get_xy()
+        parts = self.get_parts_at(x,y)
+        if parts:
+            SlTrace.lg("x=%d y=%d" % (x,y))
+            for part in parts:
+                if ec == "i":
+                    SlTrace.lg("    %s\n%s" % (part, part.str_edges()))
+                elif ec == "d":
+                    part.display()
+                elif ec == "c":
+                    part.display_clear()        # clear display
+                elif ec == "n":                 # turn on
+                    part.turn_on()
+                elif ec == "f":                 # turn off
+                    part.turn_off()
+
+    def keycmd_move_edge(self, keysym):
+        """ Adjust marker based on current marker state and latest keyboard input symbol
+            User remains the same.
+            Movement rules:
+            1. If keysym is (up,down,left,right) new edge will retain the same orientation and
+            move one row/colum in the direction specified by the keysym,
+            keep the same direction and move one in the keysym direction.
+            2. The new edge, wraps around to the opposite side, if the new loction is our of bounds.
+            3. If the keysym is (plus,minus) the new edge will be +/- 90 degrees clockwize
+            from the left corner of the original edge
+            4. If the (plus,minus) rotation would place an edge outside the latice, the rotation is reversed. 
+             
+        :keysym:  keyboard key symbol(up,down,left,right,plus,minus) specifying the location of the new edge
+        """
+        edge = self.get_keycmd_edge()
+        edge_dir = edge.sub_type()
+        next_dir = edge_dir
+        next_row = edge.row 
+        next_col = edge.col 
+
+        if keysym == "plus":
+            if edge_dir == "h":
+                next_dir = "v"
+            else:
+                next_dir = "h"
+                next_col -= 1
+        elif keysym == "minus":
+            if edge_dir == "h":
+                next_dir = "v"
+                next_row -= 1
+            else:
+                next_dir = "h"
+        elif keysym == "Up":
+            next_row -= 1
+        elif keysym == "Down":
+            next_row += 1
+        elif keysym == "Left":
+            next_col -= 1
+        elif keysym == "Right":
+            next_col += 1
+
+        if next_row < 1:
+            next_row = self.board.nrows
+        if next_row > self.board.nrows+1 or (next_row > self.board.nrows and next_dir == "v"):
+            next_row = 1
+        if next_col < 1:
+            next_col = self.board.ncols
+        if next_col > self.board.ncols+1 or (next_col > self.board.ncols and next_dir == "h"):
+            next_col = 1
+
+        next_edge = self.get_part(type="edge", sub_type=next_dir, row=next_row, col=next_col)
+        SlTrace.lg("keycmd_move_edge edge(%s) row=%d, col=%d"
+                   % (next_dir, next_row, next_col))
+        if next_edge is None:
+            raise SelectError("keycmd_move_edge no edge(%s) row=%d, col=%d"
+                              % (next_dir, next_row, next_col))
+        self.move_edge_cmd(edge, next_edge)
+
+
+    def move_edge_cmd(self, edge, next_edge):
+        """ Move between edges cmd
+        :edge: current edge
+        :next_edge: new edge
+        """
+        if SlTrace.trace("track_move_edge"):
+            SlTrace.lg("before move_edge_cmd:\nedge:%s\nnext_edge:%s"
+                       % (edge, next_edge))
+        scmd = self.get_cmd("move_edge_position", has_prompt=True)
+        edge = copy.copy(edge)
+        scmd.prev_keycmd_edge_mark = edge
+        scmd.add_prev_parts(edge)
+        edge.highlighted = False                # Turn off highlighting on edge we left
+        next_edge = copy.copy(next_edge)        # In case of modification
+        next_edge.highlighted = True
+        scmd.new_keycmd_edge_mark = next_edge
+        scmd.add_new_parts([edge,next_edge])    # edge changes alos
+        self.do_cmd()
+        if SlTrace.trace("track_move_edge"):
+            SlTrace.lg("after move_edge_cmd:\nedge:%s\nnext_edge:%s"
+                       % (edge, next_edge))
+        self.keycmd_edge_mark = next_edge       # Save updated edge
+        
+        
+    def new_edge_mark(self, edge, highlight=True):
+        """ Set new position (edge)
+        :edge: location
+        :highlight: True highlight edge default: True
+        """
+        if self.keycmd_edge_mark is not None:
+            self.keycmd_edge_mark.highlight_clear()     # Clear previous
+            
+        if highlight:
+            edge.highlight_set()
+        self.keycmd_edge_mark = edge
+        
+        
+    def make_new_edge(self, edge=None, dir=None, rowcols=None):
+        if edge is not None:
+            self.new_edge(edge)
+            return
+        
+        row = rowcols[0]
+        col = rowcols[1]
+        SlTrace.lg("make_new_edge: %s row=%d col=%d" % (dir, row, col))
+        edge = self.get_part(type="edge", sub_type=dir, row=row, col=col)
+        if edge is None:
+            SlTrace.lg("No edge(%s) at row=%d col=%d" % (dir, row, col))
+            self.beep()
+            return
+        
+        self.new_edge(edge)
+
+
+    def get_keycmd_edge(self):
+        """ Get current marker direction, (row, col)
+        """
+        edge = self.keycmd_edge_mark
+        if edge is None:
+            edge = self.get_part(type="edge", sub_type="h", row=1, col=1)
+        return edge
+
+
+    def get_keycmd_marker(self):
+        """ Get current marker direction, (row, col)
+        """
+        edge = self.get_keycmd_edge()
+        dir = edge.sub_type()
+        row = edge.row 
+        col = edge.col
+        return dir, [row,col]
+    
+    
+    def update_keycmd_edge_mark(self, prev_edge_mark, new_edge_mark):
+        """ Update edge mark
+        :prev_edge_mark:  previous edge mark None if none
+        :new_edge_mark:   new edge mark, None if none
+        """
+        if prev_edge_mark is not None:
+            prev_edge_mark.highlight_clear()
+            prev_edge_mark.display()
+        if new_edge_mark is not None:
+            new_edge_mark.highlight_set()
+            new_edge_mark.display()
+        self.keycmd_edge_mark = new_edge_mark
+        
+                
     def get_xy(self):
         """ get current mouse position (or last one recongnized
         :returns: x,y on area canvas, None if never been anywhere
@@ -91,12 +302,12 @@ class SelectPlay:
         return self.board.get_xy()
 
 
-    def get_part(self, id):
+    def get_part(self, id=None, type=None, sub_type=None, row=None, col=None):
         """ Get basic part
         :id: unique part id
         :returns: part, None if not found
         """
-        return self.board.get_part(id)
+        return self.board.get_part(id=id, type=type, sub_type=sub_type, row=row, col=col)
                 
     
     def get_parts_at(self, x, y, sz_type=SelectPart.SZ_SELECT):
@@ -112,7 +323,7 @@ class SelectPlay:
     def key_release(self, event):
         """ Keyboard key release processor
         """
-        SlTrace.lg("key_release %s" % event.char)
+        SlTrace.lg("key_release %s" % event.char, "keybd")
         
     def annotate_squares(self, squares, player=None):
         """ Annotate squares in board with players info
@@ -266,12 +477,15 @@ class SelectPlay:
         :returns: True if busy
         """
         if self.is_waiting_for_message():
-            import winsound
-            winsound.Beep(500, 500)
+            self.beep()
             return True
-            
         return False
-    
+
+
+    def beep(self):
+        import winsound
+        winsound.Beep(500, 500)
+
     
     def do_message(self, message):
         """ Put message up. If time is present bring it down after time seconds    
@@ -318,6 +532,7 @@ class SelectPlay:
         icolor2 = player.color_bg
         if icolor2 is None:
             icolor2 = 'white'
+        edge.highlight_clear()
         edge.turn_on(icolor=player.color, icolor2=icolor2, move_no=move_no)
         return
     
@@ -362,7 +577,8 @@ class SelectPlay:
             return cmd
         else:
             if self.select_cmd is not None:
-                raise SelectError("get_cmd: previous cmd not completed")
+                raise SelectError("get_cmd: previous cmd(%s) not completed"
+                                   % self.select_cmd)
         self.select_cmd = SelectCommandPlay(action, has_prompt=has_prompt)
         return self.select_cmd
 
@@ -557,16 +773,25 @@ class SelectPlay:
         scmd.set_prev_player(prev_player)
         scmd.add_prev_parts(edge)               # Save previous edge state 
         self.mark_edge(edge, prev_player, move_no=scmd.move_no)
+        self.new_edge_mark(edge)
+        self.add_new_parts(edge)
+        self.do_cmd()                               # move complete
         self.clear_mods()
+
+        scmd = self.get_cmd("after_edge")
+        prev_player = self.get_player()
+        next_player = prev_player                    # Change if appropriate
         regions = []
         if self.is_square_complete(edge, regions):
+            self.add_prev_parts(edge)
+            edge.highlight_clear()          # ??? Should we just set flag??
             self.completed_square(edge, regions)
         else:
             next_player = self.get_next_player()      # Advance to next player
 
         scmd.set_new_player(next_player)
-        self.add_new_parts(edge)
-        self.do_cmd()                               # move complete
+        self.do_cmd()
+                                                        # move complete
         self.start_move()
 
 

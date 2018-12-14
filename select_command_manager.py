@@ -45,7 +45,7 @@ class SelectCommandManager:
         self.move_no += inc
         return self.move_no
     
-    def prev_move_no(self):
+    def get_prev_move_no(self):
         """ Return previous move number
         """
         if self.move_no > 1:

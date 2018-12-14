@@ -5,7 +5,10 @@ from select_error import SelectError
 from select_loc import SelectLoc
 from select_trace import SlTrace
 from select_centered_text import CenteredText
-from docutils.nodes import Part
+
+
+
+
 
 
 def color_to_fill(color):
@@ -28,14 +31,11 @@ class PartHighlight(object):
             highlight_limit=None):
         """ Record highlighting information
         :part: highlighted part
-        :tag: graphics tag for deleting/redisplay
-        :xy: x,y coordinates of mouse on canvas
         :highlight_limit: clear highlight if still on
                     after this time
                     Default: no automatic clearing
         """
         self.part  = part
-        self.xy = xy
         if highlight_limit is not None:
             import tkinter as tk
             if not hasattr(self.part.sel_area, "mw"):
@@ -188,6 +188,8 @@ class SelectPart(object):
                  display_shape=None,
                  display_size=None,
                  color=None,
+                 icolor=None,
+                 icolor2=None,
                  draggable=True,
                  invisible=False,
                  check_mod=None,
@@ -198,6 +200,9 @@ class SelectPart(object):
         :point, rect: description of location
         :display_shape: - if present, special display shape
         :display_size: - if present, special display size
+        :color: fill for area
+        :icolor: on indicator color
+        :icolor2: off indicator color
         :draggable: when selected can be dragged default:True
         :invisible: True - part is invisible default = False (visible)
         :check_mod: called, if present, before and after part is modified
@@ -218,6 +223,7 @@ class SelectPart(object):
         self.highlighted = False
         self.highlight_tag = None
         self.display_tag = tag
+        self.display_multi_tags = []    # For parts with multiple sets of display tags
         self.display_shape = display_shape
         self.display_size = display_size
         self.draggable = draggable
@@ -235,12 +241,15 @@ class SelectPart(object):
                                      SelectPart.edge_width_standoff,
                                      SelectPart.edge_width_enlarge)
         self.color = color
+        self.icolor = icolor
+        self.icolor2 = icolor2
         self.row = row
         self.col = col
         self.move_tag = None        # Used to display move info
         self.partno_tag = None      # Used to display part number info
         self.text_tags = []         # appended texts if any
         self.centered_text = []     # CenteredText entries
+        self.blinker = None         # If blinking
 
         if point is not None:
             self.loc = SelectLoc(point=point)
@@ -256,7 +265,7 @@ class SelectPart(object):
         st = self.part_type
         sub_type = self.sub_type()
         if sub_type:
-            st += sub_type
+            st += self.sub_type_desc()
         st += " id=%d" % self.id
         if self.move_no is not None:
             st += " move=%d" % self.move_no
@@ -267,6 +276,8 @@ class SelectPart(object):
             st += " row=%d col=%d" % (self.row, self.col)
         if self.is_turned_on():
             st += " turned_on"
+        if self.is_highlighted():
+            st += " highlighted"
         st += " at %s" % self.loc
         if self.centered_text:
             for ct in self.centered_text:
@@ -286,6 +297,9 @@ class SelectPart(object):
         if part.part_type != self.part_type:
             st += " type CHANGEd %s ==> %s" % (
                 self.part_type, part.part_type)
+        if part.row != self.row or part.col != self.col:
+            st += " row=%d col=%d => row=%d col=%d"  % (
+                self.row, self.col, part.row, part.col)
         if part.is_turned_on() != self.is_turned_on():
             if self.is_turned_on():
                 st += " turned_on"
@@ -315,6 +329,20 @@ class SelectPart(object):
         if st != "":
             st = self.part_type + " " + st
         return st
+
+    def str_adjacents(self, part_type=None, indent=8):
+        """ String of adjacent types
+        :part_type: type of adjacent default: all
+        """
+        ind = " "*indent
+        st = ""
+        for adjacent in self.adjacents:
+            if part_type is None or adjacent.part_type == part_type:
+                if st != "":
+                    st += "\n"
+                st += ind + str(adjacent)                
+        return st
+
 
     def str_edges(self, part_type="edge", indent=8):
         """ String of connected types edges
@@ -498,6 +526,11 @@ class SelectPart(object):
             else:
                 self.sel_area.canvas.delete(self.highlight_tag)                
             self.highlight_tag = None
+        if self.blinker is not None:
+            self.blinker.stop()
+            self.blinker = None
+        if self.display_multi_tags:
+            self.clear_display_multi_tags()
         if self.move_tag is not None:
             self.sel_area.canvas.delete(self.move_tag)
             self.move_tag = None
@@ -582,11 +615,15 @@ class SelectPart(object):
         
     def highlight_clear(self, tag=None, display=True):
         if self.is_highlighted():
-            del self.sel_area.highlights[self.id]
+            if self.id in self.sel_area.highlights:
+                del self.sel_area.highlights[self.id]
             if self.highlight_tag is not None:
                 self.sel_area.canvas.delete(self.highlight_tag)
                 self.display_tag = None
             self.highlighted = False
+            if self.blinker is not None:
+                self.blinker.stop()
+                self.blinker = None
             if display:
                 self.display()
         
@@ -975,7 +1012,29 @@ class SelectPart(object):
         """ Part sub type, e.g v/h - edge vertical/horizontal
         """
         return ""
+
+    def sub_type_desc(self):
+        """ Part sub type description for display
+        """
+        sub_type = self.sub_type()
+        if sub_type != "":
+            return "(" + sub_type + ")"
     
+        return ""
+
+
+    def clear_display_multi_tags(self):
+        """ Clear multi tags
+        """
+        if self.display_multi_tags is None:
+            return
+        for taggroup in self.display_multi_tags:
+            for tag in taggroup:
+                if tag is not None:
+                    self.sel_area.canvas.delete(tag)
+                    tag = None
+        self.display_multi_tags = []
+        
     
     def is_corner(self):
         if self.part_type == "corner":

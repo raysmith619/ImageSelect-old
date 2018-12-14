@@ -47,7 +47,9 @@ app = SelectWindow(mw,
                 title="crs_squares Testing",
                 pgmExit=pgm_exit,
                 arrange_selection=False
-                )        
+                )
+mw.lift()
+mw.attributes("-topmost", True)        
 btmove = 1.         #  Seconds between moves
 ew_display = 3
 ew_select = 5

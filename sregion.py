@@ -16,22 +16,6 @@ from select_edge import SelectEdge
 from select_region import SelectRegion
 from select_mover import SelectMover, SelectMove, SelectMoveDisplay
 from PIL.ImageChops import offset
-"""
-General domain issue
-"""
-
-class PartHighlight(object):
-    """ Information about highlighted part
-    """
-    
-    def __init__(self, part, xy=None):
-        """ Record highlighting information
-        :part: highlighted part
-        :tag: graphics tag for deleting/redisplay
-        :xy: x,y coordinates of mouse on canvas
-        """
-        self.part  = part
-        self.xy = xy
         
         
                     
@@ -400,15 +384,7 @@ class SelectReg(object):
         Clear previous highlight, if one
         
         """
-        if part.is_corner():
-            self.highlight_corner(part, xy=xy)
-        elif  part.is_edge():
-            self.highlight_edge(part, xy=xy)
-        elif  part.is_region():
-            self.highlight_region(part, xy=xy)
-        else:
-            return
-
+        part.highlight_set()
     
     
     def get_highlighted(self):
@@ -501,46 +477,6 @@ class SelectReg(object):
                     self.display_set(part)                # reestablish original display
                 del self.highlights[part.id]
                 print("highlight_clear %d: %s" % (part.id, part))
-
-        
-    
-    def highlight_corner(self, corner, xy):
-        """ Highlight given corner
-        :handle: Corner handle
-        :Returns: object tag for deletion
-        """
-        c1x,c1y,c3x,c3y = corner.get_rect(enlarge=True)
-        tag = self.canvas.create_rectangle(
-                            c1x, c1y, c3x, c3y,
-                            fill=SelectPart.corner_fill_highlight)
-        corner.highlight_tag = tag
-        self.highlights[corner.id] = PartHighlight(corner, xy=xy)
-
-    
-    def highlight_edge(self, edge, xy):
-        """ Highlight given edge
-        :hand: Corner handle
-        :Returns: object tag for deletion
-        """
-        c1x,c1y,c3x,c3y = edge.get_rect(enlarge=True)
-        tag = self.canvas.create_rectangle(
-                            c1x, c1y, c3x, c3y,
-                            fill=SelectPart.edge_fill_highlight)
-        edge.highlight_tag = tag
-        self.highlights[edge.id] = PartHighlight(edge, xy=xy)
-
-    
-    def highlight_region(self, region, xy):
-        """ Highlight region
-        :region: Corner handle
-        :Returns: object tag for deletion
-        """
-        c1x,c1y,c3x,c3y = region.get_rect(enlarge=True)
-        tag = self.canvas.create_rectangle(
-                            c1x, c1y, c3x, c3y,
-                            fill=SelectPart.region_fill_highlight)
-        region.highlight_tag = tag
-        self.highlights[region.id] = PartHighlight(region, xy=xy)
         
         
     def select_set(self, part):
