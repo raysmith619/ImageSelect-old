@@ -6,6 +6,7 @@ Created on Aug 23, 2018
 from datetime import datetime
 from cmath import rect
 from select_trace import SlTrace
+import tkinter as tk
     
 from select_error import SelectError
 from select_part import SelectPart
@@ -22,15 +23,17 @@ class SelectArea(object):
     """
     
 
-    def __init__(self, canvas, image=None, rects=None,
+    def __init__(self, canvas, mw=None, image=None, rects=None,
                 show_moved=False, show_id=False,
                 highlight_limit=None,
                 check_mod=None,
                 down_click_call=None,
-                tbmove=.1):
+                tbmove=.1,
+                max_select = 1):
         """
         Rectangular selected/ing region,
         :canvas: Canvas containing the region
+        :mw: Master/Parent widget, if one
         :image: displayed in frame    Not necessary/used
         :rects: single, or list of Rectangles (upper left x,y), (lower right x,y)
                 each being a region
@@ -41,6 +44,9 @@ class SelectArea(object):
         :down_click_call: processes down clicks if present'
                 default: no remote processing
         :tbmove: minimum time (seconds) between move recognition
+        :max_select: maximum number of simultaneous selections
+                    allowed
+                    default = 1
         """
         self.parts = []          # Parts of scene, corners, edges, regions
         self.parts_by_id = {}    # By part id
@@ -51,6 +57,12 @@ class SelectArea(object):
                  (pt1 (upper right), pt2 (lower right)
         """
         self.image = image
+        if mw is None:
+            mw = tk.Tk()
+            mw.withdraw()       # Hide main window
+        self.mw = mw
+
+            
         self.check_mod = check_mod
         self.tbmove = tbmove
         self.highlight_limit = highlight_limit                        
@@ -68,7 +80,7 @@ class SelectArea(object):
         self.down_click_call = down_click_call           # call for processing down events
         self.stroke_info = SelectStroke()         # Any ongoing stroke
         self.stroke_call = None    # Call back if stroke
-        
+        self.max_select = max_select
         if rects is not None:
             if not isinstance(rects, list):
                 rects = [rects]         # list of one
@@ -646,6 +658,11 @@ class SelectArea(object):
     def on_motion(self, event):
         cnv = event.widget
         x,y = cnv.canvasx(event.x), cnv.canvasy(event.y)
+        self.mouse_move(x, y)
+        
+        
+        
+    def mouse_move(self, x,  y):
         SlTrace.lg("on_motion: x,y=%d,%d" % (x,y), "on_motion")
         if not self.enable_moves_:
             return                  # Low-level ignore
@@ -657,7 +674,7 @@ class SelectArea(object):
         if self.is_down:
             if self.has_selected():
                 parts = self.get_selected_parts(only_draggable=True)
-                if len(parts) > 0:
+                if len(parts) > 0 and len(parts) <= self.max_select:
                     self.record_move_setup()
                     for part in parts:
                         xinc = x - prev_xy[0]

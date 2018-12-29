@@ -20,6 +20,8 @@ class SelectWindow(Frame):
                  master=None,
                  title=None,
                  pgmExit=exit,
+                 cmd_proc=False,
+                 cmd_file=None,
                  arrange_selection=True,
                  games=[],          # text, proc pairs
                  actions=[],
@@ -41,7 +43,8 @@ class SelectWindow(Frame):
         self.tc = None          # Trace control
         self.arc = None         # Arrangement control
         self.arc_call_d = {}     # arc call back functions
-        
+        self.cmd_proc = cmd_proc    # Setup command file processing
+        self.cmd_file = cmd_file    # if not None, execute this cmd file
         #with that, we want to then run init_window, which doesn't yet exist
         self.init_window()
 
@@ -69,6 +72,8 @@ class SelectWindow(Frame):
         filemenu.add_command(label="Log", command=self.LogFile)
         filemenu.add_command(label="Properties", command=self.Properties)
         filemenu.add_separator()
+        ###filemenu.add_comand(label="Cmd", command=self.command_proc)
+        filemenu.add_separator()
         filemenu.add_command(label="Exit", command=self.pgmExit)
         menubar.add_cascade(label="File", menu=filemenu)
 
@@ -93,6 +98,11 @@ class SelectWindow(Frame):
         """
         self.menubar.add_command(label=label, command=call_back)
 
+
+    def command_proc(self):
+        """ Setup command processing options / action
+        """
+        
         
     def get_arc(self):
         """ Return reference to arrange control

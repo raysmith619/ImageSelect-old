@@ -36,8 +36,8 @@ class SelectCommandPlay(SelectCommand):
         if isinstance(action_or_cmd, str):
             self.prev_move_no = None
             self.new_move_no = None
-            self.prev_keycmd_edge_mark = None   # Usually no action
-            self.new_keycmd_edge_mark = None
+            ###self.prev_keycmd_edge_mark = None   # Usually no action
+            ###self.new_keycmd_edge_mark = None
             self.prev_messages = []
             self.new_messages = []
             self.prev_player = self.user_module.get_player()
@@ -114,11 +114,16 @@ class SelectCommandPlay(SelectCommand):
     def set_can_undo(self, can=True):
         self.can_undo_ = can 
 
-
+    def show_display(self):
+        """ Show display at current time
+        - mostly for debugging
+        """
+        self.user_module.show_display()
+        
 
     def do_cmd(self):
         """
-        Do command, storing, if command can be undone or repeated, for redo,repeat
+        Do command, storing it, if command can be undone or repeated, for redo,repeat
         """
         self.display_print()
         self.select_print()
@@ -190,12 +195,16 @@ class SelectCommandPlay(SelectCommand):
          1. clear all prev_parts, if not in new, and present
          2. display all new_parts (includes pre-clearing)
         """
+        ###return          # TFD - see if still displays
+    
         command_manager = self.command_manager
         user_module = command_manager.user_module
         user_module.update_score_window()
+ 
         for part_id in self.prev_parts:
-            part = user_module.get_part(part_id)
-            part.display_clear()
+            if part_id not in self.new_parts:
+                part = user_module.get_part(part_id)
+                part.display_clear()
         pdos = self.display_order(list(self.new_parts.values()))
         for new_part in pdos:
             part_id = new_part.id
@@ -222,9 +231,9 @@ class SelectCommandPlay(SelectCommand):
         without storing it for redo
         """
         SlTrace.lg("\n execute(%s)" % self, "execute")
-        if SlTrace.trace("execute_edge_change"):
-            execute_prev_keycmd_edge_mark = copy.copy(
-                self.user_module.keycmd_edge_mark)
+        ###if SlTrace.trace("execute_edge_change"):
+            ###execute_prev_keycmd_edge_mark = copy.copy(
+            ###    self.user_module.keycmd_edge_mark)
         if SlTrace.trace("execute_part_change"):
             execute_prev_parts = {}
             for part_id, part in self.prev_parts.items():
@@ -233,10 +242,12 @@ class SelectCommandPlay(SelectCommand):
             for part_id, part in self.new_parts.items():
                 execute_orig_new_parts[part_id] = copy.copy(part)
         self.command_manager.current_command = self
+        '''
         if (self.prev_keycmd_edge_mark != None
             or self.new_keycmd_edge_mark != None):
             self.user_module.update_keycmd_edge_mark(
-                self.prev_keycmd_edge_mark, self.new_keycmd_edge_mark) 
+                self.prev_keycmd_edge_mark, self.new_keycmd_edge_mark)
+        ''' 
         self.user_module.set_player(self.new_player)
         self.user_module.remove_parts(self.prev_parts.values())
         self.user_module.insert_parts(self.new_parts.values())
@@ -250,12 +261,14 @@ class SelectCommandPlay(SelectCommand):
                                          % (self.action), "execute_print")
         self.command_manager.cmd_stack_print("execute(%s) AFTER"
                                         % (self.action), "execute_stack")
+        '''
         if SlTrace.trace("execute_edge_change"):
             if (self.user_module.keycmd_edge_mark is not None
                 and execute_prev_keycmd_edge_mark is not None
                 and self.user_module.keycmd_edge_mark != execute_prev_keycmd_edge_mark):
                 SlTrace.lg("    diff edge_mark: %s"
                             % execute_prev_keycmd_edge_mark.diff(self.user_module.keycmd_edge_mark))
+        '''
         if SlTrace.trace("execute_part_change"):
             for part_id, part in execute_prev_parts.items():
                 post_part = self.user_module.get_part(part_id)
@@ -298,9 +311,11 @@ class SelectCommandPlay(SelectCommand):
         cmd.new_move_no = cmd.prev_move_no
         cmd.prev_move_no = temp
         
+        '''
         temp = cmd.new_keycmd_edge_mark
         cmd.new_keycmd_edge_mark = cmd.prev_keycmd_edge_mark
         cmd.prev_keycmd_edge_mark = temp
+        '''
         
         temp = cmd.new_player
         cmd.new_player = cmd.prev_player

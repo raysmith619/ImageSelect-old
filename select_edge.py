@@ -28,8 +28,9 @@ class SelectEdge(SelectPart):
         We leave room for the corners at each end
         Highlight if appropriate
         """
-        if not self.turned_on:
-            self.display_clear()
+        if SlTrace.trace("dbg"):
+            SlTrace.lg("dbg")
+        self.display_clear()
             
         if self.invisible and not self.highlighted and not self.turned_on:
             return
@@ -40,8 +41,8 @@ class SelectEdge(SelectPart):
         if self.highlighted:
             if self.turned_on:
                 if self.on_highlighting:
-                    if self.icolor is not None:     # Check if indicators on
-                        self.display_indicator()
+                    if self.player is not None:     # Check if indicators on
+                        self.display_indicator(player=self.player)
                         self.blink(self.display_multi_tags)
 
                 else:
@@ -57,15 +58,11 @@ class SelectEdge(SelectPart):
                 else:
                     c1x,c1y,c3x,c3y = self.get_rect()
                    
-        else:
+        else:           # Not highlighted
             self.display_clear()
             c1x, c1y, c3x, c3y = self.get_rect()
-            if self.icolor is not None:     # Check if indicators on
-                self.display_indicator()
-            else:
-                self.display_tag = self.sel_area.canvas.create_rectangle(
-                                    c1x, c1y, c3x, c3y,
-                                    fill=self.color)
+            if self.is_turned_on():
+                self.display_indicator(player=self.player)
         if SlTrace.trace("show_id"):
             dir_x, dir_y = self.edge_dxy()
             chr_w = 5
@@ -95,6 +92,7 @@ class SelectEdge(SelectPart):
             cy = (c1y+c3y)/2 + offset_y
             self.move_no_tag = self.display_text((cx, cy), text=str(self.move_no))
             SlTrace.lg("    part showing move_no %s" % self, "show_move_print")
+        self.sel_area.mw.update_idletasks()
         
         
     def blink(self, tagtags,
@@ -129,8 +127,9 @@ class SelectEdge(SelectPart):
 
         
 
-    def display_indicator(self, fills=None):
+    def display_indicator(self, player=None, fills=None):
         """ Display edge with player indicator
+        :player: player/owner
         fills[0], fills[1],...
         :fills: fill colors
                 default: icolor, icolor2, icolor2
@@ -138,6 +137,10 @@ class SelectEdge(SelectPart):
                 If icolor None - SelectPart.edge_fill_highlight
         If len(fills) == 2 fills[2] == fills[1]
         """
+        if player is None:
+            player = self.player
+        if player is not None:
+            fills = [player.icolor, player.icolor2]
         if fills is None:
             fills = [self.icolor]
         if fills[0] is None:

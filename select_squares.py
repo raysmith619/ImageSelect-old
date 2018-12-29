@@ -246,7 +246,7 @@ class SelectSquares(object):
         if part.is_edge() and not part.is_turned_on():
             SlTrace.lg("turning on %s" % part, "turning_on")
             self.drawn_lines.append(part)
-            part.turn_on()
+            part.turn_on(player=self.get_player())
             regions = part.get_adjacents()      # Look if we completed any squares
             for square in regions:
                 if square.is_complete():
@@ -256,6 +256,16 @@ class SelectSquares(object):
     
         return False
 
+
+    def get_player(self):
+        """ Get current player
+        """
+        if self.player_control is None:
+            return None
+        
+        return self.player_control.get_player()
+    
+    
 
     def player_control(self):
         """ Setup player control
@@ -289,6 +299,8 @@ class SelectSquares(object):
                 raise SelectError("No part(id=%d) found %s"
                                    % (part.id, part))
                 continue
+            if d_part.row == 2:
+                pass
             d_part.display_clear()
             d_part.set(invisible=True)
     

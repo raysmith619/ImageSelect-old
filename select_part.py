@@ -37,13 +37,8 @@ class PartHighlight(object):
         """
         self.part  = part
         if highlight_limit is not None:
-            import tkinter as tk
-            if not hasattr(self.part.sel_area, "mw"):
-                self.part.sel_area.mw = tk.Tk()
-                self.part.sel_area.mw.withdraw()       # Hide main window
-
             self.part.sel_area.mw.after(highlight_limit,
-                                   self.part.highlight_clear)        # Call us after time_step        
+                            self.part.highlight_clear)    # Call us after time_step        
 
 
 class SelectPart(object):
@@ -187,6 +182,7 @@ class SelectPart(object):
                  point=None, rect=None, tag=None, xy=None,
                  display_shape=None,
                  display_size=None,
+                 player=None,
                  color=None,
                  icolor=None,
                  icolor2=None,
@@ -200,6 +196,7 @@ class SelectPart(object):
         :point, rect: description of location
         :display_shape: - if present, special display shape
         :display_size: - if present, special display size
+        :player: player/owner of part
         :color: fill for area
         :icolor: on indicator color
         :icolor2: off indicator color
@@ -240,6 +237,7 @@ class SelectPart(object):
                                      SelectPart.edge_width_select,
                                      SelectPart.edge_width_standoff,
                                      SelectPart.edge_width_enlarge)
+        self.player = player
         self.color = color
         self.icolor = icolor
         self.icolor2 = icolor2
@@ -614,18 +612,18 @@ class SelectPart(object):
 
         
     def highlight_clear(self, tag=None, display=True):
-        if self.is_highlighted():
-            if self.id in self.sel_area.highlights:
-                del self.sel_area.highlights[self.id]
-            if self.highlight_tag is not None:
-                self.sel_area.canvas.delete(self.highlight_tag)
-                self.display_tag = None
-            self.highlighted = False
-            if self.blinker is not None:
-                self.blinker.stop()
-                self.blinker = None
-            if display:
-                self.display()
+        ### HACKif self.is_highlighted():    ???
+        if self.id in self.sel_area.highlights:
+            del self.sel_area.highlights[self.id]
+        if self.highlight_tag is not None:
+            self.sel_area.canvas.delete(self.highlight_tag)
+            self.display_tag = None
+        self.highlighted = False
+        if self.blinker is not None:
+            self.blinker.stop()
+            self.blinker = None
+        if display:
+            self.display()
         
     def highlight_set(self, display=True, highlight_limit=None):
         self.highlighted = True
@@ -1241,15 +1239,17 @@ class SelectPart(object):
         return self.turned_on
     
 
-    def turn_off(self, display=True, move_no=None):
+    def turn_off(self, display=True, player=None, move_no=None):
         """ Set part to be "off", may be "Game" specific
             default action clear "turned_on", and invisible = True
         :display: display part, default = True
+        :player: new player setting, default: None
         """
         if self.check_mod is not None:
             self.check_mod(self, mod_type=SelectPart.MOD_BEFORE, desc="turn_off")
         self.turned_on = False
         self.invisible = True
+        self.player = player
         self.move_no = move_no
         if self.check_mod is not None:
             self.check_mod(self, mod_type=SelectPart.MOD_AFTER, desc="turn_off")
@@ -1257,7 +1257,7 @@ class SelectPart(object):
             self.display()
 
 
-    def turn_on(self, display=True, icolor=None, icolor2=None, move_no=None):
+    def turn_on(self, display=True, player=None, move_no=None):
         """ Set part to be "on", may be "Game" specific
             default action set "on", and invisible = False
         :display: display part, default = True
@@ -1268,8 +1268,7 @@ class SelectPart(object):
             self.check_mod(self, mod_type=SelectPart.MOD_BEFORE, desc="turn_on")
         self.turned_on = True
         self.invisible = False
-        self.icolor = icolor
-        self.icolor2 = icolor2
+        self.player = player
         self.move_no = move_no
         if not self.on_highlighting:
             self.highlight_clear()

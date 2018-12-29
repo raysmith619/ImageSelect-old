@@ -16,7 +16,8 @@ from select_message import SelectMessage
         
 
 class SelectPlay:
-    def __init__(self, board=None, mw = None,
+    def __init__(self, board=None, mw=None,
+                 cmd_stream=None,
                  btmove=.1, player_control=None, move_first=None,
                  before_move=None, after_move=None):
         """ Setup play
@@ -25,6 +26,7 @@ class SelectPlay:
         :after_move: function, if any, to call after move
         """
         self.board = board
+        self.cmd_stream = cmd_stream
         self.command_manager = SelectCommandManager(self)
         SelectCommandPlay.set_management(self.command_manager, self)
         if mw is None:
@@ -57,7 +59,32 @@ class SelectPlay:
         self.keycmd_args = []
         self.keycmd_edge_mark = None        # Current marker edge
 
+
+    def user_cmd(self, cmd):
+        """ User level command, by which the user/operators
+        interact with the game
+        Initially to facilitate command file processing but
+        may provide a single point of control to facitate simulation
+        and testing.
+        :cmd: User level command specification
+        """
+        keysym = cmd.name
+        if keysym == "undo": keysym = "u"
+        if keysym == "redo": keysym = "r"
+        if re.match(r'Up|Down|Left|Right|Enter|Plus|Minus'
+                    + r'i|j|u|r', keysym):
+            self.key_press_cmd(ec_keysym=keysym)
+        else:
+            raise SelectError("Don't recognize cmd: %s"
+                              % cmd)
+        self.show_display()
+
+
     def key_press(self, event):
+        self.key_press_event(event)
+
+
+    def key_press_event(self, event):
         """ Keyboard key press processor
         """
         if not SlTrace.trace("keycmd"):
@@ -66,6 +93,20 @@ class SelectPlay:
         ec = event.char
         ec_code = event.keycode
         ec_keysym = event.keysym
+        self.key_press_cmd(ec, ec_code, ec_keysym)
+
+        
+    def key_press_cmd(self, ec=None,
+                      ec_code=None,
+                      ec_keysym=None):
+        """ Keyboard key press / command processor
+        """
+        if ec is None:
+            ec = -1
+        if ec_code is None:
+            ec_code = -1
+        if ec_keysym is None:
+            ec_keysym = "NA"
         SlTrace.lg("key press: '%s' %s(x%02X)" % (ec, ec_keysym, ec_code))
         if ec == "j":       # Info (e.g. "i" for current edge position
             edge = self.get_keycmd_edge()
@@ -95,7 +136,9 @@ class SelectPlay:
                 or ec_keysym == "Right"
                 or ec_keysym == "plus"
                 or ec_keysym == "minus"):
-            return self.keycmd_move_edge(ec_keysym)
+            res = self.keycmd_move_edge(ec_keysym)
+            return res
+        
 
         if self.keycmd_edge:
             try:
@@ -145,7 +188,7 @@ class SelectPlay:
                 elif ec == "c":
                     part.display_clear()        # clear display
                 elif ec == "n":                 # turn on
-                    part.turn_on()
+                    part.turn_on(player=self.get_player())
                 elif ec == "f":                 # turn off
                     part.turn_off()
 
@@ -218,12 +261,12 @@ class SelectPlay:
                        % (edge, next_edge))
         scmd = self.get_cmd("move_edge_position", has_prompt=True)
         edge = copy.copy(edge)
-        scmd.prev_keycmd_edge_mark = edge
-        scmd.add_prev_parts(edge)
-        edge.highlighted = False                # Turn off highlighting on edge we left
+        ###scmd.prev_keycmd_edge_mark = edge
         next_edge = copy.copy(next_edge)        # In case of modification
+        scmd.add_prev_parts([edge, next_edge])
+        edge.highlighted = False                # Turn off highlighting on edge we left
         next_edge.highlighted = True
-        scmd.new_keycmd_edge_mark = next_edge
+        ###scmd.new_keycmd_edge_mark = next_edge
         scmd.add_new_parts([edge,next_edge])    # edge changes alos
         self.do_cmd()
         if SlTrace.trace("track_move_edge"):
@@ -288,10 +331,8 @@ class SelectPlay:
         """
         if prev_edge_mark is not None:
             prev_edge_mark.highlight_clear()
-            prev_edge_mark.display()
         if new_edge_mark is not None:
             new_edge_mark.highlight_set()
-            new_edge_mark.display()
         self.keycmd_edge_mark = new_edge_mark
         
                 
@@ -346,6 +387,10 @@ class SelectPlay:
         self.add_new_parts(squares)
 
 
+    def show_display(self):
+        self.mw.update_idletasks()
+
+        
     def setup_score_window(self, move_no_label):
         """ Setup interaction with Move/Undo/Redo
         """            
@@ -529,11 +574,8 @@ class SelectPlay:
         :edge: edge being marked
         :player: player selecting edge
         """
-        icolor2 = player.color_bg
-        if icolor2 is None:
-            icolor2 = 'white'
         edge.highlight_clear()
-        edge.turn_on(icolor=player.color, icolor2=icolor2, move_no=move_no)
+        edge.turn_on(player=player, move_no=move_no)
         return
     
     

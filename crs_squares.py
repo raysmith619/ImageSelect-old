@@ -18,11 +18,21 @@ from select_squares import SelectSquares
 from select_arrange import SelectArrange
 from player_control import PlayerControl
 from select_command import SelectCommand
+from command_file import CommandFile
 
 def pgm_exit():
     SlTrace.lg("Properties File: %s"% SlTrace.getPropPath())
     SlTrace.lg("Log File: %s"% SlTrace.getLogPath())
     sys.exit(0)
+
+
+def str2bool(v):
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
 nx = 5              # Number of x divisions
@@ -38,29 +48,11 @@ SlTrace.setLogName(base_name)
 SlTrace.lg("%s %s\n" % (os.path.basename(sys.argv[0]), " ".join(sys.argv[1:])))
 ###SlTrace.setTraceFlag("get_next_val", 1)
 """ Flags for setup """
-app = None                  # Application window ref
-frame = None
-###canvas = None
-        
-mw = Tk()
-app = SelectWindow(mw,
-                title="crs_squares Testing",
-                pgmExit=pgm_exit,
-                arrange_selection=False
-                )
-mw.lift()
-mw.attributes("-topmost", True)        
 btmove = 1.         #  Seconds between moves
 ew_display = 3
 ew_select = 5
 ew_standoff = 5
 trace = ""
-width = app.get_current_val("window_width", width)
-width = int(width)
-height = app.get_current_val("window_height", height)
-height = int(height)
-nx = app.get_current_val("figure_columns", nx)
-ny = app.get_current_val("figure_rows", ny)
 
 parser = argparse.ArgumentParser()
 
@@ -70,8 +62,8 @@ parser.add_argument('--ew_select', type=int, dest='ew_select', default=ew_select
 parser.add_argument('--ew_standoff', type=int, dest='ew_standoff', default=ew_standoff)
 parser.add_argument('--nx=', type=int, dest='nx', default=nx)
 parser.add_argument('--ny=', type=int, dest='ny', default=ny)
-parser.add_argument('--show_id', type=bool, dest='show_id', default=show_id)
-parser.add_argument('--show_score', type=bool, dest='show_score', default=show_score)
+parser.add_argument('--show_id', type=str2bool, dest='show_id', default=show_id)
+parser.add_argument('--show_score', type=str2bool, dest='show_score', default=show_score)
 parser.add_argument('--trace', dest='trace', default=trace)
 parser.add_argument('--width=', type=int, dest='width', default=width)
 parser.add_argument('--height=', type=int, dest='height', default=height)
@@ -111,6 +103,47 @@ def check_mod(part, mod_type=None, desc=None):
     """ called before and after each part modificatiom
     """
     sp.check_mod(part, mod_type=mod_type, desc=desc)
+app = None                  # Application window ref
+frame = None
+###canvas = None
+        
+mw = Tk()
+app = SelectWindow(mw,
+                title="crs_squares Testing",
+                pgmExit=pgm_exit,
+                cmd_proc=True,
+                cmd_file=None,
+                arrange_selection=False
+                )
+mw.lift()
+mw.attributes("-topmost", True)
+
+def is_in_pgm_args(flag):
+    """ Test if flag present in pgm args
+    Looks for flag and -flag and --flag
+    :flag: flag string
+    """
+    args = sys.argv[1:]
+    for arg in args:
+        if flag == "-" + arg:
+            return True
+        
+        if flag == "--" + arg:
+            return True
+        
+    return False
+
+
+if not is_in_pgm_args("width"):        
+    width = app.get_current_val("window_width", width)
+width = int(width)
+if not is_in_pgm_args("height"):
+    height = app.get_current_val("window_height", height)
+height = int(height)
+if not is_in_pgm_args("nx"):
+    nx = app.get_current_val("figure_columns", nx)
+if not is_in_pgm_args("ny"):
+    ny = app.get_current_val("figure_rows", ny)
 
 
 def before_move(scmd):
@@ -279,11 +312,18 @@ def change_players():
     """
     SlTrace.lg("PlayerControl")
     sp.player_control.control_display()
-    
+
+
+def cmd_file():
+    """ Setup command file processing
+    """
+    cF = CommandFile(title="Command File",
+                     cmd_execute=sp.user_cmd)    
     
 app.add_menu_command("NewGame", new_game)
 app.add_menu_command("Players", change_players)
 app.add_menu_command("Score", score_window)
+app.add_menu_command("CmdFile", cmd_file)
 set_squares_button()
 
 mainloop()

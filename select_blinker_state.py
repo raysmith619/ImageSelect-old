@@ -157,4 +157,9 @@ class BlinkerMultiState:
         """ Stop blinking
         """
         self.part = None
+        for taggroup in self.multitags:
+            for tag in taggroup:
+                if tag is not None:
+                    self.canvas.delete(tag)
+                    tag  = None
         self.multitags = []

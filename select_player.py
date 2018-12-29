@@ -54,6 +54,8 @@ class SelectPlayer:
         self.position = position
         self.color = color
         self.color_bg = color_bg
+        self.icolor = color
+        self.icolor2 = color_bg
         self.voice = voice
         self.help_play = help_play
         self.pause = pause

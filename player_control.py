@@ -122,9 +122,9 @@ class PlayerControl(Toplevel):
         entry / modification
         """
         win_width =  500
-        win_height = 200
-        win_x0 = 100
-        win_y0 = 100
+        win_height = 300
+        win_x0 = 800
+        win_y0 = 200
                     
         self.mw = Toplevel()
         win_setting = "%dx%d+%d+%d" % (win_width, win_height, win_x0, win_y0)
@@ -180,6 +180,7 @@ class PlayerControl(Toplevel):
                 self.set_player_frame(players_frame, player, col_infos, idx)
             players_frame.rowconfigure(pid, weight=1)
 
+        self.set_vals()     # Emphasize playing
 
         """ Contol buttons """
         control_button_frame = Frame(controls_frame)
@@ -468,8 +469,16 @@ class PlayerControl(Toplevel):
         """ Read form, if displayed, and update internal values
         """
         for player in self.players.values():
+            pf = "playing"
+            player.set_val_from_ctl(pf)         # Force read from control field
+            is_playing = player.get_val(pf)
             for field in player.ctls_vars:
                 player.set_val_from_ctl(field)
+                field_ctl = player.ctls[field]
+                if is_playing:
+                    field_ctl.config({"bg" : "white"})
+                else:
+                    field_ctl.config({"bg" : "light gray"})
                 
        
     def delete_window(self):
