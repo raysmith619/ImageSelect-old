@@ -211,7 +211,9 @@ class SlTrace:
         """
         if not SlTrace.trace(trace_flag, level):
             return
-        
+
+        if re.match(r'^\s*$', msg):
+            return        
         try:
             cls.setupLogging()
         except:
@@ -528,6 +530,9 @@ class SlTrace:
 
     @classmethod
     def setProperty(cls, key, value):
+        if cls.defaultProps is None:
+            cls.setupLogging()
+            cls.setProps()
         cls.defaultProps.setProperty(key, value)
 
 

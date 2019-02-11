@@ -1,11 +1,16 @@
 # select_region.py        
 
+import copy
+
 from select_trace import SlTrace
 from select_error import SelectError
 from select_loc import SelectLoc
 from select_part import SelectPart
 from select_edge import SelectEdge
-
+from select_part import color_to_fill
+from select_centered_text import CenteredText        
+###from select_area import SelectArea
+        
 class SelectRegion(SelectPart):
     fill = "clear"                  # Default region color
     fill_highlight = "lightgray"   # Default region highlight color
@@ -14,17 +19,24 @@ class SelectRegion(SelectPart):
     @classmethod
     def reset(cls):
         cls.partno = 0
+
+    '''Use default copy.deepcopy()
+    def __deepcopy__(self, memo=None):
+        """ provide deep copy as a custimized "constructor",
+        reducing recusion
+        """
+        res = self.copy()        
+        return res
+    '''
         
             
-    def __init__(self, sel_area, rect=None, color=None):
+    def __init__(self, sel_area, **kwargs):
         """ Setup region
         :sel_area: reference to basis, Needed to display
         """
-        SelectPart.__init__(self, sel_area, "region",  rect=rect)
-        self.color = color
+        super().__init__(sel_area, "region", **kwargs)
         SelectRegion.partno += 1
         self.partno = SelectRegion.partno
-
 
     def add_rect(self, rect, color=None):
         """ Add rectangle 
@@ -48,6 +60,7 @@ class SelectRegion(SelectPart):
     def add_edge(self, pt1, pt2):
         """ Add edge, creating edge if new to area
         Also adds corners, creating corners if new to area
+        Add self to adjacent to added edges
         """
         edge = self.get_edge(pt1, pt2)  # get, create if new
         self.add_connects(edge)
@@ -114,12 +127,14 @@ class SelectRegion(SelectPart):
         :region: Corner handle
         :Returns: object tag for deletion
         """
+        if self.invisible and not self.centered_text:   # hack to show
+            return
+        
+        SlTrace.lg("%s: %s at %s" % (self.part_type, self, str(self.loc)), "display")
         c1x,c1y,c3x,c3y = self.get_rect()
-        if self.color is None:
-            SlTrace.lg("region.color is None")
-            fill = self.fill
-        else:
-            fill = "#%06x" % self.color
+        fill = self.get_fill()
+        if fill is None:
+            fill = 'PeachPuff3'
         SlTrace.lg("region fill=%s" % fill, "get_color")
         self.display_clear()
         if SlTrace.trace("region_rect"):
@@ -128,17 +143,61 @@ class SelectRegion(SelectPart):
             if c3y < c1y:
                 SlTrace.lg ("region: %d c3y(%d) < c1y(%d)" % (self.partno, c3y, c1y))
                 SlTrace.lg("Strange?")
-        tag = self.sel_area.canvas.create_rectangle(
-                            c1x, c1y, c3x, c3y,
-                            fill=fill)
-        self.display_tag = tag
+        if self.is_highlighted():
+            self.highlight_on_stripe_width = 4
+            self.highlight_off_stripe_width = 2
+            """ Horozontal strips of on width separated by
+            off width """
+            hfill = self.get_highlight_fill()
+            coords = []
+            stx_beg = c1x + self.highlight_on_stripe_width
+            stx_end = c3x - self.highlight_on_stripe_width
+            sty_beg = c1y + self.highlight_on_stripe_width
+            sty_end = sty_beg
+            coord_tr = stx_end, sty_end 
+            coord_lr = [stx_beg, sty_beg, stx_end, sty_end]
+            while sty_end < c3y:
+                coord_lr = [stx_beg, sty_beg, stx_end, sty_end]
+                coords.extend(coord_lr)
+                coord_rl = [stx_end, sty_end, stx_beg, sty_beg]     # Go back before down
+                coords.extend(coord_rl)
+                sty_beg += (self.highlight_on_stripe_width    
+                            + self.highlight_off_stripe_width)
+                sty_end = sty_beg
+            coords.extend(coord_lr)
+            coords.extend(coord_tr)
+            if hfill is None:
+                hfill = 'light goldenrod yellow'
+            try:
+                tag = self.sel_area.canvas.create_line(
+                                    coords,
+                                    width=self.highlight_on_stripe_width,
+                                    fill=hfill)
+                self.highlight_tag = tag
+            except:
+                SlTrace.lg("Possible bad hfill: %s for region %d" % (hfill, self.partno))
+        else:
+            if fill is None:
+                fill = 'PeachPuff3'
+            try:
+                tag = self.sel_area.canvas.create_rectangle(
+                                    c1x, c1y, c3x, c3y,
+                                    fill=fill)
+                self.display_tag = tag
+            except:
+                SlTrace.lg("Possible bad fill: %s for region %d" % (fill, self.partno))
+        
+        if self.centered_text:
+            self.do_centered_text()
+                
         if SlTrace.trace("regno"):
             cx = (c1x+c3x)/2
             cy = (c1y+c3y)/2
             disp_str = "%d" % self.partno
             self.partno_tag = self.sel_area.display_text((cx, cy), text=disp_str)
-            SlTrace.lg("region: %d  %s (%d,%d) %s"
-                       % (self.partno, self.part_type, cx,cy, disp_str))
+            SlTrace.lg("region: %d  %s row=%d, col=%d (%d,%d) %s"
+                       % (self.partno, self.part_type,
+                          self.row, self.col, cx,cy, disp_str))
 
     def edge_dxy(self):
         """ Get "edge direction" as x-increment, y-increment pair
@@ -164,8 +223,8 @@ class SelectRegion(SelectPart):
     
     def get_rect(self, sz_type=None, enlarge=False):
         """ Get upper left x,y and lower right x,y region
-        :handle: region's SelectPart
-        Region is a set of parts, with the corners being the boundary
+        :sz_type: type of rect 
+        :enlarge: true - enlarge
         """
         if sz_type is None:
             sz_type=SelectPart.SZ_DISPLAY
@@ -186,7 +245,7 @@ class SelectRegion(SelectPart):
             c3x = corners[2].loc.coord[0]
             c3y = corners[2].loc.coord[1]
         c1x,c1y,c3x,c3y = SelectLoc.order_ul_lr(c1x,c1y,c3x,c3y)
-        wlen = self.get_edge_width(sz_type)
+        wlen = self.get_edge_width_cls(sz_type)
         c1x += wlen
         c1y += wlen
         c3x -= wlen
@@ -204,13 +263,61 @@ class SelectRegion(SelectPart):
                 SlTrace.lg("Strange?")
                 for connected in self.connecteds:
                     SlTrace.lg("%d: %s loc_key: %s"
-                                % (connected.id, connected.part_type, connected.loc_key()))
+                                % (connected.part_id, connected.part_type, connected.loc_key()))
             
             
             
         return c1x,c1y,c3x,c3y
+    
+    def highlight(self):
+        """ Highlight and display
+        """
+        self.highlight_set()
+        self.display()
 
 
+    def is_complete(self, added=None):
+        """ Check if this is complete
+            == all edges are turned on
+        :added: one or list of parts to add for completion
+        """
+        if added is not None:
+            if not isinstance(added, list):
+                added = [added]
+            for conn in self.get_connecteds():
+                if not conn.is_edge():
+                    continue
+                if conn.is_turned_on():
+                    continue
+                if conn in added:
+                    continue
+                return False
+                
+        else:        
+            for conn in self.get_connecteds():
+                if conn.is_edge() and not conn.is_turned_on():
+                    return False
+        if SlTrace.trace("complete_test"):
+            SlTrace.lg("%s is complete" % self)
+            self.display_info(tag="  complete")
+            pass    
+        return True         # No non-turned on
+
+
+    def would_complete(self, edge):
+        """ Check if this edge, if turned on, would complete this region
+            == all edges are turned on
+        """
+        for conn in self.get_connecteds():
+            if conn.is_edge():
+                if not conn.is_turned_on() and not conn.same_part(edge):
+                    return False
+        if SlTrace.trace("complete_test"):
+            SlTrace.lg("%s is complete" % self)
+            self.display_info(tag="  complete")
+            pass    
+        return True         # No non-turned on
+    
     
     def loc_key(self):
         """ Return location of part as a key

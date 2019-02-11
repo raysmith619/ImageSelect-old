@@ -24,7 +24,6 @@ class SelectMove(object):
         self.delta_y = delta_y
         self.indexes = indexes
 
-
     def __str__(self):
         """ Provide reasonable view of move
         """
@@ -82,7 +81,7 @@ class SelectMover(object):
         move.mover = self               # refer to mover        
         self.moves.append(move)
         part = move.part
-        self.moves_by_id[part.id] = move
+        self.moves_by_id[part.part_id] = move
         if move.move_type == SelectMove.MT_WHOLE:
             self.add_adjusts(part)          # Adjust all connected parts
 
@@ -156,7 +155,7 @@ class SelectMover(object):
     def is_moved(self, part):
         """ Determine if part has already been placed in current move list
         """
-        if part.id in self.moves_by_id:
+        if part.part_id in self.moves_by_id:
             return True
         
         return False
@@ -171,7 +170,9 @@ class SelectMover(object):
             self.delta_x = delta_x
         if delta_y is not None:
             self.delta_y = delta_y
-            
+        
+        displayed_parts = {}        # Parts to re display
+        SlTrace.lg("\nmoving: %d parts" % (len(self.moves)), "display")    
         for move in self.moves:
             self.sel_area.record_move(move)
             part = move.part
@@ -189,20 +190,21 @@ class SelectMover(object):
                 self.adjust_part(part, delta_x, delta_y, indexes=move.indexes)
             elif move_type == SelectMove.MT_WHOLE:
                 self.adjust_part(part, delta_x, delta_y)
-            self.display_set(part)
+            displayed_parts[part.part_id] = part
 
         """ Adjust affected regions:
             Assume they are only the regions connected to the moved parts
         """
-        region_d = {}
         for move in self.moves:
             connecteds = move.part.connecteds
             for part in connecteds:
                 if part.is_region():
-                    region_d[part.id] = part  # Adjust only once
-        for region_id in region_d:
-            region = region_d[region_id]
-            region.display()
+                    displayed_parts[part.part_id] = part  # Adjust only once
+                    reg_connecteds = part.connecteds    # Get things connected to region
+                    for reg_part in reg_connecteds:
+                        displayed_parts[reg_part.part_id] = reg_part     # affected by region redraw
+                    
+        self.display(parts=displayed_parts.values())
             
             
     def adjust_part(self, part, delta_x, delta_y, indexes=None):
@@ -218,6 +220,13 @@ class SelectMover(object):
     def display_set(self, part=None):
         self.sel_area.display_set(part=part)
 
+    def display(self, parts=None):
+        """ Display list of parts
+        :parts: list of parts to be displayed
+                default: all parts
+        """
+        self.sel_area.display(parts=parts)
+        
 
     def display_clear(self, handle):
         """ Clear display of this handle

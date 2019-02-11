@@ -31,6 +31,13 @@ class SelectLoc(object):
         return c1x, c1y, c3x,c3y
 
 
+    def __deepcopy__(self, memo=None):
+        """ provide deep copy by just passing shallow copy of self
+        reducing level of recursion
+        """
+        SlTrace.lg("SelectArea __deepcopy__", "copy")
+        return self
+
 
     
     def __init__(self, point=None, rect=None):

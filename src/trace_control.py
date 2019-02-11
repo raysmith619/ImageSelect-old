@@ -20,7 +20,12 @@ class TraceControl(Toplevel):
 
                     
         self.tc_mw = Toplevel()
-        self.tc_mw.geometry("200x200")
+        tc_x0 = 800
+        tc_y0 = 100
+        tc_w = 200
+        tc_h = 200
+        tc_geo = "%dx%d+%d+%d" % (tc_w, tc_h, tc_x0, tc_y0)
+        self.tc_mw.geometry(tc_geo)
         self.tc_mw.title("Trace")
         top_frame = Frame(self.tc_mw)
         self.tc_mw.protocol("WM_DELETE_WINDOW", self.delete_tc_window)

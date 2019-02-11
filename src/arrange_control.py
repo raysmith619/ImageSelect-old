@@ -6,6 +6,7 @@ from select_error import SelectError
 from select_trace import SlTrace
 from builtins import str
 from select_dd_choice import SelectDDChoice
+from _ast import Str
 """
 Arrangement control window layout
             ___  min____ max___ inc___ end (loop) reverse
@@ -49,6 +50,8 @@ class ControlEntry:
             if default_value is not None:
                 if isinstance(default_value, str) and self.value_type is not str:
                     default_value = self.str_to_value(default_value)
+            elif value is not None:
+                default_value = value
             self.default_value = default_value
             if value is None:
                 value = default_value
@@ -65,7 +68,7 @@ class ControlEntry:
         """ Convert string on entry to internal value based on type
             "" for non-string data evaluates to None
         :str: external string type
-        :returns: data type
+        :returns: string converted to control's data type
         """
         if string is None:
             return string
@@ -85,19 +88,20 @@ class ControlEntry:
         elif self.value_type is str:
             return string
         else:
-            print("str_to_value: Unrecognized value_type:")
-
-        
+            SlTrace.lg("str_to_value: Unrecognized value_type:", "valueck")        
         return string
+    
+    
     def to_value(self, val):
         """ Convert val on entry to internal value based on type
             "" for non-string data evaluates to None
-        :val: external type, default return entry value
+        :val: default value, if none use local value
         :returns: data type
         """
         if val is None:
-            return None
+            return self.value
         
+
         if self.value_type is None:
             self.value_type = type(val)
         if isinstance(val, str):
@@ -113,7 +117,20 @@ class ControlEntry:
             return str(val)
 
         raise SelectError("str_to_value: Unrecognized value_type:")
-            
+
+
+    def get_input(self):
+        """ Get input from widget
+            None if no widget
+            Sets control's value
+            :returns: input value
+        """
+        if self.ctl_widget is None:
+            return None
+        
+        field_str = self.ctl_widget.get()
+        self.value = self.str_to_value(field_str)
+        return self.value
 
 
     
@@ -130,6 +147,7 @@ class ArrangeControl(Toplevel):
         self.ctl_lists = {}     # Control selection lists [current_index, selection_list]
         ###Toplevel.__init__(self, parent)
         self.ctlbase = ctlbase
+        self.sar_max_duration = None        # Track arrange color duration
         """ Setup control names found in properties file
         Updated as new control entries are added
         """
@@ -150,10 +168,10 @@ class ArrangeControl(Toplevel):
         if title is None:
             title = "Arrange"
         self.change_control = change_call
-        win_width = self.get_current_val("ac_window_width", 500)
-        win_height = self.get_current_val("ac_window_height", 400)
-        win_x0 = self.get_current_val("ac_window_x0", 200)
-        win_y0 = self.get_current_val("ac_window_y0", 200)
+        win_width =  500
+        win_height = 700
+        win_x0 = 100
+        win_y0 = 100
                     
         self.mw = Toplevel()
         win_setting = "%dx%d+%d+%d" % (win_width, win_height, win_x0, win_y0)
@@ -170,6 +188,9 @@ class ArrangeControl(Toplevel):
         controls_frame.pack(side="top", fill="both", expand=True)
         self.controls_frame = controls_frame
  
+        """
+        Window Setup
+        """
         win_label = Label(master=controls_frame, text="Window", anchor='w')
         win_label.pack(side="top", fill="both", expand=True)
         self.add_change_ctl(master=controls_frame, ctl_name="window_width", text="width", value=win_width)
@@ -177,7 +198,9 @@ class ArrangeControl(Toplevel):
         ###self.add_change_ctl(master=controls_frame, ctl_name="window_x0", text="x0", value=win_width*.1)
         ###self.add_change_ctl(master=controls_frame, ctl_name="window_y0", text="y0", value=win_height*.1)
 
-        
+        """
+        Figure Setup
+        """
         Label(master=controls_frame, text="")
         win_label.pack(side="top", fill="both", expand=True) 
         win_label = Label(master=controls_frame, text="Figure", anchor='w')
@@ -185,9 +208,11 @@ class ArrangeControl(Toplevel):
         self.add_change_ctl(master=controls_frame, ctl_name="figure_columns", text="columns", value=6)
         self.add_change_ctl(master=controls_frame, ctl_name="figure_rows", text="rows", value=5)
         self.add_change_ctl(master=controls_frame, ctl_name="figure_size", text="size",
-                             value=50, min=20, max=200)
+                             value=50, min_value=20, max_value=200)
 
-        
+        """
+        Color Selections
+        """
         Label(master=controls_frame, text="")
         win_label.pack(side="top", fill="both", expand=True) 
         win_label = Label(master=controls_frame, text="Colors", anchor='w')
@@ -205,16 +230,60 @@ class ArrangeControl(Toplevel):
         self.add_color_ctl(master=controls_frame, ctl_name="color_value", text="value")
 
 
+        """
+        Rearrangement Selections
+        """
+        Label(master=controls_frame, text="")
+        win_label.pack(side="top", fill="both", expand=True) 
+        win_label = Label(master=controls_frame, text="Rearrange", anchor='w')
+        win_label.pack(side="top", fill="both", expand=True)
+        arrange_arranged_list = self.set_list(ctl_name="arrange_arranged",
+                selection_list = ["square", "2x2", "3x3", "4x4", "row", "column"])
+        self.add_color_ctl(master=controls_frame, ctl_name="arrange_arranged", text="arranged",
+                           selection=arrange_arranged_list,
+                           selection_default= "square")
+        arrange_extent_list = self.set_list(ctl_name="arrange_extent",
+                selection_list = ["row", "column", "all"])
+        self.add_color_ctl(master=controls_frame, ctl_name="arrange_extent", text="extent",
+                           selection=arrange_extent_list,
+                           selection_default= "all")
+        arrange_propagate_list = self.set_list(ctl_name="arrange_propagate",
+                selection_list = ["ripple", "grow", "bubble",
+                        "ripple_horiz", "grow_horiz", "bubble_horiz"])
+        self.add_color_ctl(master=controls_frame, ctl_name="arrange_propagate",
+                           text="propagate",
+                           selection=arrange_propagate_list,
+                           selection_default= "grow")
+        arrange_restore_list = self.set_list(ctl_name="arrange_restore",
+                selection_list = ["random", "forward", "reverse"])
+        self.add_color_ctl(master=controls_frame, ctl_name="arrange_restore",
+                           text="restore",
+                           selection=arrange_restore_list,
+                           selection_default= "random")
+        arrange_modify_list = self.set_list(ctl_name="arrange_modify",
+                selection_list = ["replace", "switch", "darken"])
+        self.add_color_ctl(master=controls_frame, ctl_name="arrange_modify",
+                           text="modify",
+                           selection=arrange_modify_list,
+                           selection_default= "replace")
+        self.add_change_ctl(master=controls_frame, ctl_name="arrange_time", text="time",
+                             value=1000, min_value=1000, max_value=1000)
+        self.add_change_ctl(master=controls_frame, ctl_name="arrange_number", text="number",
+                             value=1, min_value=1, max_value=1)
+
+
  
+        """
+        Major Time Step
+        """ 
         Label(master=controls_frame, text="")
         win_label.pack(side="top", fill="both", expand=True) 
         win_label = Label(master=controls_frame, text="Time(msec)", anchor='w')
         win_label.pack(side="top", fill="both", expand=True)
-        self.add_change_ctl(master=controls_frame, ctl_name="time_step", text="step", value=1)
+        self.add_change_ctl(master=controls_frame, ctl_name="time_step", text="step",
+                            value=1000, min_value=1000, max_value=1000)
        
  
- 
-        
         run_pause_frame = Frame(top_frame)
         run_pause_frame.pack(side="top", fill="both", expand=True)
         self.run_pause_frame = run_pause_frame
@@ -229,34 +298,39 @@ class ArrangeControl(Toplevel):
         step_button.pack(side="left", expand=True)
         step_button = Button(master=run_pause_frame, text="StepDown", command=self.step_down)
         step_button.pack(side="left", expand=True)
+        SlTrace.lg("End of TraceControl __init__")
 
 
     def add_change_ctl(self, master=None, ctl_name=None, text=None, value=None,
-                       min=None, max=None):
+                       width=5, min_value=None, max_value=None):
         """ Add change control to data base and to frame
         :master: master frame into which we place the controls
         :ctl_name: unique name for this control in the data base
                     prefix for sub components
         :text:   text for control section
+        :width: with of input field
         :value:  Optional value to set / display for current value
-        :min: Optional min value, default is value
-        :max: Optional max value, default is value
+        :min_value: Optional min value, default is value
+        :max_value: Optional max value, default is value
         """
         ctl_frame = Frame(master=master)
         ctl_frame.pack(side="top", fill="both", expand=True)
         Label(master=ctl_frame, text="    ", anchor='w').pack(side="left")
         ctl_label = Label(master=ctl_frame, text=text, anchor='w')
         ctl_label.pack(side="left", fill="both", expand=False)
-        if min is None:
-            min = value
-        if max is None:
-            max = value
+        if min_value is None:
+            min_value = value
+        if max_value is None:
+            max_value = value
         self.add_change_component(ctl_frame, base=ctl_name, name="current",
-                                  value=value, text="")
+                                  width=width, value=value, text="")
         sp = Label(ctl_frame, text="    ", anchor="w")
         sp.pack(side="left")
-        self.add_change_component(ctl_frame, base=ctl_name, name="min", value=min)
-        self.add_change_component(ctl_frame, base=ctl_name, name="max", value=max)
+        if value is not None and not isinstance(value,str):      # Don't include min,max if type str
+            self.add_change_component(ctl_frame, base=ctl_name, name="min",
+                                      width=width, value=min_value)
+            self.add_change_component(ctl_frame, base=ctl_name, name="max",
+                                      width=width, value=max_value)
         self.add_change_component(ctl_frame, base=ctl_name, name="next",
                                     selection=["same", "random", "ascend", "descend"],
                                     selection_default="random")
@@ -268,6 +342,46 @@ class ArrangeControl(Toplevel):
     def add_color_ctl(self, master=None, ctl_name=None, text=None, value=None,
                       selection=None, selection_default=None):
         """ Setup color control
+        :master: master frame into which we place the controls
+        :ctl_name: unique name for this control in the data base
+                    prefix for sub components
+        :text:   text for control section
+        :value:  Optional value to set / display for current value
+        :selection: - list of selection values
+        :selection_default: - value of selection default
+        """
+        ctl_frame = Frame(master=master)
+        ctl_frame.pack(side="top", fill="both", expand=True)
+        Label(master=ctl_frame, text="    ", anchor='w').pack(side="left")
+        ctl_label = Label(master=ctl_frame, text=text, anchor='w')
+        ctl_label.pack(side="left", fill="both", expand=False)
+        if selection is not None:
+            self.add_change_component(ctl_frame, base=ctl_name, name="current",
+                                    text="",
+                                    selection=selection,
+                                    selection_default=selection_default)
+        else:
+            self.add_change_component(ctl_frame, base=ctl_name, name="current",
+                                    text="")
+            
+        if value is not None and not isinstance(value,str):      # Don't include min,max if type str
+            self.add_change_component(ctl_frame, base=ctl_name, name="min")
+            self.add_change_component(ctl_frame, base=ctl_name, name="max")
+        self.add_change_component(ctl_frame, base=ctl_name, name="next",
+                                            selection=["same", "random", "ascend", "descend"],
+                                            selection_default="same")
+        self.add_change_component(ctl_frame, base=ctl_name, name="end",
+                                            selection=["reverse", "wrap", "random"],
+                                            selection_default="reverse")
+
+
+    def add_rearrange_ctl(self, master=None, ctl_name=None, text=None, value=None,
+                      selection=None, selection_default=None):
+        """ Setup rearrange control
+        This is the rearrangement of existing squares/parts in the preesisting setup.
+        These operations should be less computaionally expensive and therefore faster
+        than the recreation of the whole figure.
+        
         :master: master frame into which we place the controls
         :ctl_name: unique name for this control in the data base
                     prefix for sub components
@@ -324,13 +438,17 @@ class ArrangeControl(Toplevel):
         if text is None:
             text = name
         
+        if value is not None and value_type is None:
+            value_type = type(value)
+            
         if text != "":
             label_entry = Label(ctl_frame, text= "  "+text, anchor="w")
             label_entry.pack(side="left")
         ctl_name = base + "_" + name
+        if SlTrace.trace("add_change"):
+            SlTrace.lg("add_change_component %s %s" % (ctl_name, text))
         if selection is not None:
-            if selection_default is None:
-                selection_default = selection[0]
+            selection_default =  self.get_prop_value(ctl_name, selection_default)
             val_entry = SelectDDChoice(ctl_frame,
                                      selection=selection,
                                      default=selection_default)
@@ -514,35 +632,148 @@ class ArrangeControl(Toplevel):
         names = sorted(self.control_d.keys())
         return names
 
-
-    def get_component_val(self, name, comp_name, default):
-        """ Get component value of named control
-        Get value from widget, if present, else use entry value
+    def get_ctl_vals(self, con="=", sep=" "):
+        """ get the list of name=val of all control names
+        :con: connector between name and value
+        :sep: is separator default = space
         """
-        name_comp = name + "_" + comp_name
+        ret_str = ""
+        for name in self.get_ctl_names():
+            if name.endswith("_current"):
+                if ret_str != "":
+                    ret_str += sep
+                val = self.get_component_val(name, default="NONE")
+                ret_str += name + con + str(val)
+        return ret_str
+
+
+    def log_ctl_vals(self, con="=", sep=" ", trace=None):
+        """ Log current control values
+        See get_ctl_vals
+        """
+        if SlTrace.trace(trace):    # ck for trace before doing call
+            SlTrace.lg(self.get_ctl_vals(con=con, sep=sep))
+        
+
+    def get_component_val(self, name, comp_name=None, default=None):
+        """ Get component value of named control
+        If widget is present, get from widget
+        else if control is present, get from control
+        else if properties is present, get from properties
+        :name: - control name
+        :comp_name: if present, append with "_" comp_name
+        :default: - use if value not found - MANDATORY
+                    data type is used if control entry data type is unknown
+        """
+        if default is None:
+            raise SelectError("get_component_val: %s_%s mandatory default parameter missing"
+                              % (name, comp_name))
+            
+        name_comp = name
+        if comp_name is not None:
+            name_comp += "_" + comp_name
         comp_entry = self.get_ctl_entry(name_comp)
         if comp_entry is None:
-            return self.set_component_value(name, comp_name, default)
-        if comp_entry.value_type is None:
-            if default is not None:
-                comp_entry.value_type = type(default)
-        if comp_entry.ctl_widget is None or comp_entry.ctl_widget.get() == "":
-            val = comp_entry.default_value
-            if val is None:
-                return self.set_component_value(name, comp_name, default)
-            return self.set_component_value(name, comp_name, val)
-        field = comp_entry.ctl_widget.get()
-        if comp_entry.value_type is not str and field == "":
-            return self.set_component_value(name, comp_name,
-                                             comp_entry.default_value)
-        if comp_entry.value_type is int:
-            comp_entry.value = int(field)
-        elif comp_entry.value_type is float:
-            comp_entry.value = float(field)
-        else:
-            comp_entry.value = field
-        return self.set_component_value(name, comp_name, comp_entry.value)
+            raise SelectError("get_component_value(%s, %s - component NOT FOUD"
+                               % (name, comp_name))
 
+        if comp_entry is not None:
+            if comp_entry.value_type is None:
+                comp_entry.value_type = type(default)
+            ctl_widget = comp_entry.ctl_widget
+            if ctl_widget is not None:
+                widget_val = comp_entry.get_input()
+                if widget_val is not None:
+                    vt = comp_entry.value_type
+                    if vt == int:
+                        if widget_val == "":
+                            widget_val = "0"      # Treat undefined as 0
+                        value = int(widget_val)
+                    elif vt == float:
+                        if widget_val == "":
+                            widget_val = "0"      # Treat undefined as 0
+                        value = float(widget_val)
+                    elif vt == str:
+                        value = widget_val
+                    else:
+                        value = widget_val          # No change - should we check?
+                        SlTrace.lg("get_component_val: %s ??? value_type(%s) widget_val=%s type(%s)"
+                                   % (name_comp, vt, widget_val, type(widget_val)))        
+                        SlTrace.lg("  type(int)=%s comp_entry.value_type=%s"
+                                   % (type(int), comp_entry.value_type))        
+                    return value
+                else:
+                    SlTrace.lg("get_component_val: %s None return from comp_entry.get_input"
+                               % comp_name)
+            return comp_entry.value
+
+        return default                  # No component entry - return default
+    
+
+    def step_end(self, name, new_value):
+        """ Do appropriate end condition action for component
+        :name: component base name
+        :new_value: prospective new value
+        """
+        min_value = self.get_component_val(name, "min", new_value)
+        max_value = self.get_component_val(name, "max", new_value)
+        end_value = self.get_component_val(name, "end", "wrap")
+        if new_value < min_value:
+            if end_value == "reverse":
+                self.set_component_value(name, "next", "ascend")
+                new_value = min_value
+            elif end_value == "wrap":
+                new_value = max_value
+            elif end_value == "random":
+                new_value = random.randint(min_value, max_value)
+        else:   # > max_value
+            if end_value == "reverse":
+                self.set_component_value(name, "next", "descend")
+                new_value = max_value
+            elif end_value == "wrap":
+                new_value = min_value
+            elif end_value == "random":
+                new_value = random.randint(min_value, max_value)
+        return new_value
+
+    def get_component_next_val(self, name,
+                            nrange=50,
+                            inc_dir=1,
+                            default_value=None):
+        """ Next value for this component
+        :name: control name
+        :nrange: - number of samples for incremental
+        :default_value: default value
+        """
+        cur_value = self.get_current_val(name, 1)
+        next_direction = self.get_component_val(name, "next", "same")
+        if SlTrace.trace("get_next_val"):
+            SlTrace.lg("get_next_val %s cur_val=%s next=%s"
+                       % (name, cur_value, next_direction))
+        if isinstance(cur_value, str):
+            next_value = self.ctl_list_value(name)
+            SlTrace.lg("get_value %s str next=%s val=%s"
+                        % (name, next_direction, next_value), "get_next_val")
+            
+            return next_value
+        
+        else:
+            min_value = float(self.get_component_val(name, "min", cur_value))
+            max_value = float(self.get_component_val(name, "max", cur_value))
+            inc_value = (max_value-min_value)/nrange            
+            if next_direction == "ascend":
+                new_value = cur_value + inc_dir * inc_value
+            elif next == "descend":
+                new_value = cur_value - inc_dir * inc_value
+            elif next_direction == "random":
+                new_value = random.randint(min_value, max_value)
+            else:
+                new_value = cur_value + inc_value
+            if new_value < min_value or new_value > max_value:
+                new_value = self.step_end(name, new_value)
+            self.set_current_val(name, new_value)
+
+        
 
     def set_component_value(self, name, comp_name, value):
         """ Set component value of named control
@@ -554,6 +785,8 @@ class ArrangeControl(Toplevel):
         name_comp = name + "_" + comp_name
         comp_entry = self.get_ctl_entry(name_comp)
         if comp_entry is None:
+            raise SelectError("set_component_value(%s, %s - component NOT FOUD"
+                               % (name, comp_name))
             return value
         
         if value is not None:                
@@ -601,36 +834,43 @@ class ArrangeControl(Toplevel):
         return selection_list
     
     def ctl_list(self, ctl_name):
-        lists_entry = self.ctl_list[ctl_name]
+        lists_entry = self.ctl_lists[ctl_name]
         return lists_entry[1]
     
-    def ctl_list_entry(self, ctl_name, prog=None, end="wrap"):
+    def ctl_list_value(self, ctl_name, prog=None, end="wrap"):
         """ Return next list entry, given prog: same, random, ascend, descend
         """
+        ctl_choice = self.get_component_val(ctl_name, "current", "NONE_FOUND")
+        ctl_list = self.ctl_list(ctl_name)
+        ctl_list_cur = 0            # If not found
+        if ctl_choice != "NONE_FOUND":
+            for i in range(len(ctl_list)): 
+                if ctl_list[i] == ctl_choice:
+                    ctl_list_cur = i
+                    break
+                
         if prog is None:
-            prog = self.get_component_val(ctl_name, "next", "ramdom")
+            prog = self.get_component_val(ctl_name, "next", "random")
         if end is None:
             end = self.get_component_val(ctl_name, "end", "wrap")
         
         ctl_list_entry = self.ctl_lists[ctl_name]
-        ctl_list_cur = ctl_list_entry[0]
-        ctl_list = ctl_list_entry[1]
         nchoice = len(ctl_list)
-        if prog == "random":
-            ient = random.randint(0, nchoice-1)
-            choice = ctl_list[ient]
-            self.set_component_value(ctl_name, "current", choice)        
-            return choice
-
         ctl_list_next = ctl_list_cur
+        if prog == "random":
+            ctl_list_next = random.randint(0, nchoice-1)
         if prog == "ascend":
             ctl_list_next = ctl_list_cur + 1
-            if ctl_list_next >= nchoice:
-                ctl_list_next = 0
         elif prog == "descend":
             ctl_list_next = ctl_list_cur - 1
-            if ctl_list_next < 0:
-                ctl_list_next = nchoice-1       
+        elif prog == "same":
+            ctl_list_next = ctl_list_cur 
+            
+        if ctl_list_next >= nchoice:
+            ctl_list_next = 0
+        if ctl_list_next < 0:
+            ctl_list_next = nchoice-1
+                              
         entry = [ctl_list_next, ctl_list]
         self.ctl_lists[ctl_name] = entry
         choice = ctl_list[ctl_list_next]
@@ -653,14 +893,33 @@ class ArrangeControl(Toplevel):
         
         return val
 
-
-    def get_prop_key(self, name):
-        """ Translate full  control name into full Properties file key
+ 
+    def get_prop_value(self, name, value):
+        """ Get property value, if one, else use value.
+        If property exists convert to type of value
+        :name: control name
+        :value: default value used if no property found,
+             data type of value used if prop string  found        
         """
+        if name in self.ctl_name_d:
+            val_str = self.ctl_name_d[name]
+            if isinstance(value, str):
+                return val_str          # is str
+            
+            if isinstance(value, int):
+                if val_str == "":
+                    val_str = "0"
+                return int(val_str)
+            
+            if isinstance(value, float):
+                if val_str == "":
+                    val_str = "0"
+                return float(val_str)
+            
+            return val_str          # Return uncvhanged (str)
         
-        key = self.CONTROL_NAME_PREFIX + "." + name
-        return key
-    
+        return value                # Send given default
+        
 
     def list_controls(self):
         """ List controls' settings
@@ -727,6 +986,17 @@ class ArrangeControl(Toplevel):
         ctl_value = ctl_entry.ctl_widget.get()
         prop_key = self.get_prop_key(name)
         SlTrace.setProperty(prop_key, ctl_value)
+
+
+
+
+    def get_prop_key(self, name):
+        """ Translate full  control name into full Properties file key
+        """
+        
+        key = self.CONTROL_NAME_PREFIX + "." + name
+        return key
+
         
 if __name__ == '__main__':
     def report_change(flag, val, cklist=None):

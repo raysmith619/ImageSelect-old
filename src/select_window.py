@@ -8,34 +8,50 @@ from tkinter import *
 from select_trace import SlTrace
 from trace_control import TraceControl
 from arrange_control import ArrangeControl
+from docutils.nodes import reference
 
 # Here, we are creating our class, Window, and inheriting from the Frame
 # class. Frame is a class from the tkinter module. (see Lib/tkinter/__init__)
 class SelectWindow(Frame):
+
+    def __deepcopy__(self, memo=None):
+        """ provide deep copy by just passing shallow copy of self,
+        avoiding tkparts inside sel_area
+        """
+        SlTrace.lg("SelectArea __deepcopy__", "copy")
+        return self
             
         
     # Define settings upon initialization. Here you can specify
     def __init__(self,
                  master=None,
                  title=None,
-                 pgmExit=exit,
+                 pgmExit=sys.exit,
+                 cmd_proc=False,
+                 cmd_file=None,
+                 arrange_selection=True,
                  games=[],          # text, proc pairs
                  actions=[],
                  ):
-        
+        """ Setup window controls
+        :arrange_selection: - incude arrangement controls
+                        default: True
+        """
         # parameters that you want to send through the Frame class. 
         Frame.__init__(self, master)   
 
         #reference to the master widget, which is the tk window                 
         self.title = title
         self.master = master
+        self.arrange_selection = arrange_selection
         self.pgmExit = pgmExit
         self.games = games
         self.actions = actions
         self.tc = None          # Trace control
         self.arc = None         # Arrangement control
         self.arc_call_d = {}     # arc call back functions
-        
+        self.cmd_proc = cmd_proc    # Setup command file processing
+        self.cmd_file = cmd_file    # if not None, execute this cmd file
         #with that, we want to then run init_window, which doesn't yet exist
         self.init_window()
 
@@ -52,6 +68,7 @@ class SelectWindow(Frame):
 
         # creating a menu instance
         menubar = Menu(self.master)
+        self.menubar = menubar      # Save for future reference
         self.master.config(menu=menubar)
 
         # create the file object)
@@ -59,13 +76,18 @@ class SelectWindow(Frame):
         filemenu.add_command(label="Open", command=self.File_Open_tbd)
         filemenu.add_command(label="Save", command=self.File_Save_tbd)
         filemenu.add_separator()
+        filemenu.add_command(label="Log", command=self.LogFile)
         filemenu.add_command(label="Properties", command=self.Properties)
+        filemenu.add_separator()
+        ###filemenu.add_comand(label="Cmd", command=self.command_proc)
         filemenu.add_separator()
         filemenu.add_command(label="Exit", command=self.pgmExit)
         menubar.add_cascade(label="File", menu=filemenu)
 
-                                # Arrange control
-        menubar.add_command(label="Arrange", command=self.arrange_control)
+                                # Arrange control - optoinal
+        if self.arrange_selection:
+            menubar.add_command(label="Arrange",
+                                 command=self.arrange_control)
 
                                 # Trace control
         menubar.add_command(label="Trace", command=self.trace_control)
@@ -76,6 +98,37 @@ class SelectWindow(Frame):
     def File_Save_tbd(self):
         print("File_Save_menu to be determined")
 
+    def add_menu_command(self, label=None, call_back=None):
+        """ Add simple menu command to top menu
+        :label: command label
+        :call_back: function to be called when selected
+        """
+        self.menubar.add_command(label=label, command=call_back)
+
+
+    def command_proc(self):
+        """ Setup command processing options / action
+        """
+        
+        
+    def get_arc(self):
+        """ Return reference to arrange control
+        """
+        return self.arc
+    
+    
+    def LogFile(self):
+        print("Display Log File")
+        abs_logName = SlTrace.getLogPath()
+        SlTrace.lg("Log file  %s"
+                    % abs_logName)
+        ###osCommandString = "notepad.exe %s" % abs_propName
+        ###os.system(osCommandString)
+        import subprocess as sp
+        programName = "notepad.exe"
+        sp.Popen([programName, abs_logName])
+    
+    
     def Properties(self):
         print("Display Properties File")
         abs_propName = SlTrace.defaultProps.get_path()
@@ -103,6 +156,7 @@ class SelectWindow(Frame):
 
     def arrange_control(self):
         """ Create arrangement window
+        :returns: ref to ArrangeControl object
         """
         if self.arc is not None:
             self.arc.delete_window()
@@ -111,14 +165,10 @@ class SelectWindow(Frame):
         self.arc = ArrangeControl(self, title="Arrange")
         for callname, callfn in self.arc_call_d.items():     # Enable any call back functions
             self.arc.set_call(callname, callfn)
-
+        return self.arc
 
     def ctl_list(self, ctl_name, selection_list):
         return self.arc.ctl_list(ctl_name, selection_list)
-    
-    
-    def ctl_list_entry(self, ctl_name, prog=None, end=None):
-        return self.arc.ctl_list_entry(ctl_name, prog=prog, end=end)
 
 
     def get_ctl_entry(self, name):
@@ -144,7 +194,20 @@ class SelectWindow(Frame):
         if self.arc is None:
             return default
         return self.arc.get_component_val(name, comp_name, default)
-    
+
+    def get_component_next_val(self, base_name,
+                            nrange=50,
+                            inc_dir=1,
+                            default_value=None):
+        """ Next value for this component
+        :control_name: control name
+        :comp_name: component name
+        :nrange: - number of samples for incremental
+        :default_value: default value
+        """
+        return self.arc.get_component_next_val(base_name,
+                                nrange=nrange, inc_dir=inc_dir, default_value=default_value)
+
 
     def get_inc_val(self, name, default):
         """ Get inc value.  If none return default

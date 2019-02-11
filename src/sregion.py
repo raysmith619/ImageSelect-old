@@ -16,22 +16,6 @@ from select_edge import SelectEdge
 from select_region import SelectRegion
 from select_mover import SelectMover, SelectMove, SelectMoveDisplay
 from PIL.ImageChops import offset
-"""
-General domain issue
-"""
-
-class PartHighlight(object):
-    """ Information about highlighted part
-    """
-    
-    def __init__(self, part, xy=None):
-        """ Record highlighting information
-        :part: highlighted part
-        :tag: graphics tag for deleting/redisplay
-        :xy: x,y coordinates of mouse on canvas
-        """
-        self.part  = part
-        self.xy = xy
         
         
                     
@@ -176,27 +160,6 @@ class SelectReg(object):
             self.display_corner(part)
         elif part.is_edge():
             self.display_edge(part)
-                    
-            
-    def display_corner(self, corner):
-        """ Display corner on inside upper left corner
-        """
-        self.display_clear(corner)
-        if self.is_highlighted(corner):
-            """ Highlight given corner
-            :hand: Corner handle
-            :Returns: object tag for deletion
-            """
-            c1x,c1y,c3x,c3y = corner.get_rect(enlarge=True)
-            corner.display_tag = self.canvas.create_rectangle(
-                                c1x, c1y, c3x, c3y,
-                                fill=SelectPart.corner_fill_highlight)
-        else:
-            loc = corner.loc 
-            print("corner: %s" % str(loc))
-            c1x,c1y,c3x,c3y = corner.get_rect()
-            corner.display_tag = self.canvas.create_rectangle(
-                        c1x, c1y, c3x, c3y, fill=SelectPart.corner_fill)
     
     
     def display_text(self, position, **kwargs):
@@ -296,7 +259,11 @@ class SelectReg(object):
         """ Clear display of this handle
         """
         if handle.display_tag is not None:
-            self.canvas.delete(handle.display_tag)
+            if isinstance(handle.display_tag, list):
+                for tag in handle.display_tag:
+                    self.canvas.delete(tag)
+            else:
+                self.canvas.delete(handle.display_tag)
             handle.display_tag = None
         if handle.highlight_tag is not None:
             self.canvas.delete(handle.highlight_tag)
@@ -314,7 +281,7 @@ class SelectReg(object):
         print("edge: %s" % str(loc))
         if self.is_highlighted(edge):
             c1x,c1y,c3x,c3y = edge.get_rect(enlarge=True)
-            edge.highlighted_tag = self.canvas.create_rectangle(
+            edge.highlight_tag = self.canvas.create_rectangle(
                                 c1x, c1y, c3x, c3y,
                                 fill=SelectPart.edge_fill_highlight)
         else:
@@ -328,15 +295,15 @@ class SelectReg(object):
             chr_w = 5
             chr_h = chr_w*2
             if dir_x != 0:      # sideways
-                offset_x = -len(str(edge.id))*chr_w/2 + chr_w
+                offset_x = -len(str(edge.part_id))*chr_w/2 + chr_w
                 offset_y = chr_h
             if dir_y != 0:      # up/down
-                offset_x = len(str(edge.id))*chr_w
+                offset_x = len(str(edge.part_id))*chr_w
                 offset_y = 0    
         
             cx = (c1x+c3x)/2 + offset_x
             cy = (c1y+c3y)/2 + offset_y
-            edge.name_tag = self.display_text((cx, cy), text=str(edge.id))
+            edge.name_tag = self.display_text((cx, cy), text=str(edge.part_id))
 
     def down (self, event):
         self.is_down = True
@@ -417,15 +384,7 @@ class SelectReg(object):
         Clear previous highlight, if one
         
         """
-        if part.is_corner():
-            self.highlight_corner(part, xy=xy)
-        elif  part.is_edge():
-            self.highlight_edge(part, xy=xy)
-        elif  part.is_region():
-            self.highlight_region(part, xy=xy)
-        else:
-            return
-
+        part.highlight_set()
     
     
     def get_highlighted(self):
@@ -508,7 +467,7 @@ class SelectReg(object):
             parts = other_parts
                 
         for part in parts:
-            if part.id in self.highlights:
+            if part.part_id in self.highlights:
                 highlight_tag = part.highlight_tag
                 if highlight_tag is not None:
                     self.canvas.delete(highlight_tag)     # Remove highlight figure
@@ -516,54 +475,14 @@ class SelectReg(object):
                 part.highlighted = False
                 if part.display_tag is None:
                     self.display_set(part)                # reestablish original display
-                del self.highlights[part.id]
-                print("highlight_clear %d: %s" % (part.id, part))
-
-        
-    
-    def highlight_corner(self, corner, xy):
-        """ Highlight given corner
-        :handle: Corner handle
-        :Returns: object tag for deletion
-        """
-        c1x,c1y,c3x,c3y = corner.get_rect(enlarge=True)
-        tag = self.canvas.create_rectangle(
-                            c1x, c1y, c3x, c3y,
-                            fill=SelectPart.corner_fill_highlight)
-        corner.highlight_tag = tag
-        self.highlights[corner.id] = PartHighlight(corner, xy=xy)
-
-    
-    def highlight_edge(self, edge, xy):
-        """ Highlight given edge
-        :hand: Corner handle
-        :Returns: object tag for deletion
-        """
-        c1x,c1y,c3x,c3y = edge.get_rect(enlarge=True)
-        tag = self.canvas.create_rectangle(
-                            c1x, c1y, c3x, c3y,
-                            fill=SelectPart.edge_fill_highlight)
-        edge.highlight_tag = tag
-        self.highlights[edge.id] = PartHighlight(edge, xy=xy)
-
-    
-    def highlight_region(self, region, xy):
-        """ Highlight region
-        :region: Corner handle
-        :Returns: object tag for deletion
-        """
-        c1x,c1y,c3x,c3y = region.get_rect(enlarge=True)
-        tag = self.canvas.create_rectangle(
-                            c1x, c1y, c3x, c3y,
-                            fill=SelectPart.region_fill_highlight)
-        region.highlight_tag = tag
-        self.highlights[region.id] = PartHighlight(region, xy=xy)
+                del self.highlights[part.part_id]
+                print("highlight_clear %d: %s" % (part.part_id, part))
         
         
     def select_set(self, part):
         """ Select handle
         """
-        self.selects[part.id] = part
+        self.selects[part.part_id] = part
         
         
     def select_remove(self, selects):
@@ -693,12 +612,12 @@ class SelectReg(object):
     def add_part(self, part):
         """ Add new part to list
         """
-        if part.id in self.parts_by_id:
+        if part.part_id in self.parts_by_id:
             return
         
         print("add_part: %s" % part)
         self.parts.append(part)
-        self.parts_by_id[part.id] = part
+        self.parts_by_id[part.part_id] = part
         
         
                             
