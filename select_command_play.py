@@ -1,6 +1,8 @@
 # select_command_play.py    12Nov2018
+
 import copy
 
+from select_fun import *
 from select_trace import SlTrace
 from select_error import SelectError
 from select_command import SelectCommand
@@ -19,11 +21,32 @@ class SelectCommandPlay(SelectCommand):
     def set_management(cls, command_manager, user_module):
         cls.command_manager = command_manager
         cls.user_module = user_module
+
+
+    def __deepcopy__(self, memo=None):
+        """ provide deep copy as a custimized "constructor",
+        reducing recusion
+        """
+        new_copy = SelectCommandPlay(self.action,  has_prompt=self.has_prompt, undo_unit=self.undo_unit)
+        new_copy.prev_move_no = self.prev_move_no
+        new_copy.new_move_no = self.new_move_no
+        new_copy.prev_keycmd_edge_mark = self.prev_keycmd_edge_mark   # Usually no action
+        new_copy.new_keycmd_edge_mark = self.new_keycmd_edge_mark
+        new_copy.prev_messages = self.prev_messages
+        new_copy.new_messages = self.new_messages
+        new_copy.prev_player = select_copy(self.prev_player)
+        new_copy.new_player = select_copy(self.new_player)
+        new_copy.prev_selects = select_copy(self.prev_selects)
+        new_copy.new_selects = select_copy(self.new_selects)
+        new_copy.prev_parts = select_copy(self.prev_parts)    # Hash by id of previous part values
+        new_copy.new_parts = select_copy(self.new_parts)     # Hash by id of new part values
+        return new_copy
+
        
     """ Command object, sufficient to contain do/undo
     for SelectPlay
     """
-    def __init__(self, action_or_cmd, has_prompt=False):
+    def __init__(self, action_or_cmd, has_prompt=False, undo_unit=False):
         """ Initialize do/undo Structure
         :action_or_cmd:
             str - type of command:
@@ -31,25 +54,28 @@ class SelectCommandPlay(SelectCommand):
         :cmd: command
         :has_prompt: True - contains move prompt
                     default: False
+        :undo_unit:  True - completes an undoable sequence
+                    default: False
         """
-        SelectCommand.__init__(self, action_or_cmd, has_prompt=has_prompt)
+        SelectCommand.__init__(self, action_or_cmd, has_prompt=has_prompt,
+                               undo_unit=undo_unit)
         if isinstance(action_or_cmd, str):
             self.prev_move_no = None
             self.new_move_no = None
-            ###self.prev_keycmd_edge_mark = None   # Usually no action
-            ###self.new_keycmd_edge_mark = None
+            self.prev_keycmd_edge_mark = None   # Usually no action
+            self.new_keycmd_edge_mark = None
             self.prev_messages = []
             self.new_messages = []
             self.prev_player = self.user_module.get_player()
-            self.new_player = copy.copy(self.prev_player)
-            self.prev_selects = []
-            self.new_selects = []
+            self.new_player = select_copy(self.prev_player)
+            self.prev_selects = self.command_manager.user_module.get_selects()
+            self.new_selects = self.prev_selects
             self.prev_parts = {}    # Hash by id of previous part values
             self.new_parts = {}     # Hash by id of new part values
         else:
             """ Hack because super does not appear to populate self """
             no = self.no
-            self = copy.copy(action_or_cmd)
+            self = select_copy(action_or_cmd)
             self.no = no
             
 
@@ -58,6 +84,16 @@ class SelectCommandPlay(SelectCommand):
         st += " move: %d" % self.move_no
         if self.has_prompt:
             st += " has_prompt"
+        if self.undo_unit:
+            st += " undo_unit"
+        if self.prev_selects:
+            st += "\n  prev_selects:"
+            for part in self.prev_selects.values():
+                st += "\n    %s" % part
+        if self.new_selects:
+            st += "\n  new_selects:"
+            for part in self.new_selects.values():
+                st += "\n    %s" % part
         ###st += (" new_player:" + str(self.new_player))
         st += "\n  prev_player: " + str(self.prev_player)
         st += "\n  new_player: " + str(self.new_player)
@@ -81,30 +117,33 @@ class SelectCommandPlay(SelectCommand):
         """
         parts_by_id = {}
         for part in self.prev_parts.values():
-            if part.id in parts_by_id:
+            if part.part_id in parts_by_id:
                 SlTrace.lg("Duplicate in prev_parts id=%d       %s"
-                            % (part.id, st.replace("\n", "\n        ")))
+                            % (part.part_id, st.replace("\n", "\n        ")))
                 return st
-            parts_by_id[part.id] = part
+            parts_by_id[part.part_id] = part
         part_by_id = {}
         for part in self.new_parts.values():
             if part in part_by_id:
                 SlTrace.lg("Duplicate in new_parts id=%d      %s"
-                            % (part.id, st.replace("\n", "\n        ")))
+                            % (part.part_id, st.replace("\n", "\n        ")))
                 return st
-            parts_by_id[part.id] = part
+            parts_by_id[part.part_id] = part
                 
         return st
-    
+
+
+    def select_copy(self, levels=None):
+        return copy.copy(self)
     
             
     def set_new_player(self, player):
-        self.new_player = copy.copy(player)
+        self.new_player = select_copy(player)
     
     
             
     def set_prev_player(self, player):
-        self.prev_player = copy.copy(player)
+        self.prev_player = select_copy(player)
         
                     
     def add_message(self, message):
@@ -150,8 +189,30 @@ class SelectCommandPlay(SelectCommand):
 
     def select_print(self):
         SlTrace.lg("do_cmd: select_print", "execute_select")
-        
-    
+
+
+    def select_clear(self, parts):
+        if not isinstance(parts, list):
+            parts = [parts]
+        for part in parts:
+            self.prev_selects[part.part_id] = part
+
+
+    def select_set(self, parts, keep=False):
+        """ Select parts
+        :parts: part(s) to select
+        :keep: keep previously selected
+                default: False
+        """
+        if not isinstance(parts, list):
+            parts = [parts]
+        if keep:
+            new_selects = select_copy(self.new_selects)
+        else:
+            new_selects = {}
+        for part in parts:
+            new_selects[part.part_id] = part
+        self.new_selects = new_selects
 
     def add_new_parts(self, parts):
         """ add one or a list of parts to new
@@ -160,11 +221,11 @@ class SelectCommandPlay(SelectCommand):
         if not isinstance(parts, list):
             parts = [parts]
         for part in parts:
-            if part.id in self.new_parts:
+            if part.part_id in self.new_parts:
                 SlTrace.lg("Duplicate in add_new_parts id=%d       %s"
-                            % (part.id, str(part).replace("\n", "\n        ")))
+                            % (part.part_id, str(part).replace("\n", "\n        ")))
                 continue
-            self.new_parts[part.id] = copy.copy(part)
+            self.new_parts[part.part_id] = select_copy(part)
 
 
     def add_prev_parts(self, parts):
@@ -175,12 +236,12 @@ class SelectCommandPlay(SelectCommand):
         if not isinstance(parts, list):
             parts = [parts]
         for part in parts:
-            if part.id in self.prev_parts:
+            if part.part_id in self.prev_parts:
                 SlTrace.lg("Duplicate in add_prev_parts id=%d       %s"
-                            % (part.id, str(part).replace("\n", "\n        ")))
+                            % (part.part_id, str(part).replace("\n", "\n        ")))
                 continue
             
-            self.prev_parts[part.id] = copy.copy(part)
+            self.prev_parts[part.part_id] = select_copy(part)
 
 
 
@@ -202,12 +263,41 @@ class SelectCommandPlay(SelectCommand):
         user_module.update_score_window()
  
         for part_id in self.prev_parts:
-            if part_id not in self.new_parts:
-                part = user_module.get_part(part_id)
-                part.display_clear()
-        pdos = self.display_order(list(self.new_parts.values()))
+            part = user_module.get_part(part_id)
+            part.display_clear()
+        
+        prev_selects = list(self.prev_selects.values())
+        new_selects = list(self.new_selects.values())
+        if SlTrace.trace("selected"):
+            self.list_cmd("display_update before select_clear")
+            self.list_selected("display_update before select_clear")
+        prev_selects_save = copy.copy(self.prev_selects)  # HACK because of changes       
+        user_module.select_clear(prev_selects)
+        self.prev_selects = prev_selects_save
+        if SlTrace.trace("selected"):
+            self.list_cmd("display_update before select_set")
+            self.list_selected("display_update before select_set")        
+        user_module.select_set(new_selects)
+        if SlTrace.trace("selected"):
+            self.list_cmd("display_update after select_set")
+            self.list_selected("display_update after select_set")        
+        display_parts = list(self.new_parts.values())
+        """ Add in selection changes if not already in display list """
+        for part in self.prev_parts.values():
+            if part.part_id not in display_parts:
+                display_parts.append(part)
+        for part in prev_selects:
+            if part.part_id not in display_parts:
+                display_parts.append(part)
+        for part in new_selects:
+            if part.part_id not in display_parts:
+                display_parts.append(part)
+        pdos = self.display_order(display_parts)    # Order display
         for new_part in pdos:
-            part_id = new_part.id
+            part_id = new_part.part_id
+            if not new_part.connecteds:
+                SlTrace.lg("new_part no connecteds")
+                continue 
             part = user_module.get_part(part_id)
             part.display()
 
@@ -231,6 +321,8 @@ class SelectCommandPlay(SelectCommand):
         without storing it for redo
         """
         SlTrace.lg("\n execute(%s)" % self, "execute")
+        if SlTrace.trace("selected"):
+            self.list_selected("execute")
         ###if SlTrace.trace("execute_edge_change"):
             ###execute_prev_keycmd_edge_mark = copy.copy(
             ###    self.user_module.keycmd_edge_mark)
@@ -242,12 +334,10 @@ class SelectCommandPlay(SelectCommand):
             for part_id, part in self.new_parts.items():
                 execute_orig_new_parts[part_id] = copy.copy(part)
         self.command_manager.current_command = self
-        '''
         if (self.prev_keycmd_edge_mark != None
             or self.new_keycmd_edge_mark != None):
             self.user_module.update_keycmd_edge_mark(
                 self.prev_keycmd_edge_mark, self.new_keycmd_edge_mark)
-        ''' 
         self.user_module.set_player(self.new_player)
         self.user_module.remove_parts(self.prev_parts.values())
         self.user_module.insert_parts(self.new_parts.values())
@@ -280,7 +370,27 @@ class SelectCommandPlay(SelectCommand):
                 SlTrace.lg("    diff new %d: %s %s"
                            % (part_id, part.part_type,
                                part.diff(post_part)))
+        if SlTrace.trace("selected"):
+            self.list_selected("execute AFTER")
         return True
+
+    
+    def list_cmd(self, prefix=None):
+        """ List selected parts
+        :prefix: optional identifying string
+        """
+        if prefix is None:
+            prefix = ""
+        cmdstr = "%s" % self
+        cmdstr = cmdstr.replace("\n", "\n" + "    ")
+        SlTrace.lg("%scmd:    %s" % (prefix, cmdstr))
+
+    
+    def list_selected(self, prefix=None):
+        """ List selected parts
+        :prefix: optional identifying string
+        """
+        self.user_module.list_selected(prefix=prefix)
 
 
     def redo(self):
@@ -301,7 +411,7 @@ class SelectCommandPlay(SelectCommand):
         """
 
         try:
-            cmd = copy.copy(self)
+            cmd = select_copy(self)
             
         except:
             SlTrace.lg("SelectCommandPlay failure")
@@ -311,18 +421,16 @@ class SelectCommandPlay(SelectCommand):
         cmd.new_move_no = cmd.prev_move_no
         cmd.prev_move_no = temp
         
-        '''
         temp = cmd.new_keycmd_edge_mark
         cmd.new_keycmd_edge_mark = cmd.prev_keycmd_edge_mark
         cmd.prev_keycmd_edge_mark = temp
-        '''
         
         temp = cmd.new_player
         cmd.new_player = cmd.prev_player
         cmd.prev_player = temp
         
-        temp = copy.copy(cmd.new_parts)
-        cmd.new_parts = copy.copy(cmd.prev_parts)
+        temp = select_copy(cmd.new_parts)
+        cmd.new_parts = select_copy(cmd.prev_parts)
         cmd.prev_parts = temp
         
         temp_sel = cmd.new_selects

@@ -1,10 +1,12 @@
 # select_play.py
-from tkinter import *    
+from tkinter import *
+import random    
 import time
 from datetime import datetime  
 from datetime import timedelta
 import copy  
 
+from select_fun import *
 from select_trace import SlTrace
 from select_error import SelectError
 from player_control import PlayerControl        
@@ -17,14 +19,26 @@ from select_message import SelectMessage
 
 class SelectPlay:
     def __init__(self, board=None, mw=None,
+                 run=True,
+                 on_end=None,
+                 on_exit=None,
+                 auto_play_check_ms=10,
                  cmd_stream=None,
                  btmove=.1, player_control=None, move_first=None,
                  before_move=None, after_move=None):
         """ Setup play
         :board: playing board (SelectSquares)
+        :mw: Instance of Tk, if one, else created here
+        :run: Game is running default: True
+            True - auto players continue to make moves
+            False - auto player plays are ignored
+        :on_exit: function to call on exit / window destroy
+        :on_end: function, if present, to call at end of game
         :before_move: function, if any, to call before move
         :after_move: function, if any, to call after move
         """
+        self.playing = True     # Hack to suppress activity on exit event
+        
         self.board = board
         self.cmd_stream = cmd_stream
         self.command_manager = SelectCommandManager(self)
@@ -32,6 +46,14 @@ class SelectPlay:
         if mw is None:
             mw = Tk()
         self.mw = mw
+        self.mw.protocol("WM_DELETE_WINDOW", self.delete_window)
+        self.score_win = None       # iff not None score win
+        self.in_game = False
+        self.run = run
+        self.on_exit = on_exit
+        self.auto_play_check_ms = auto_play_check_ms
+        self.auto_delay_waiting = False
+        
         self.btmove = btmove
         if player_control is None:
             player_control = PlayerControl(display=False)
@@ -50,6 +72,7 @@ class SelectPlay:
         self.clear_mods()
         self.move_no_label = None       # Move no label, if displayed
         self.waiting_for_message = False
+        self.mw.protocol("WM_DELETE_WINDOW", self.on_exit)
         self.mw.bind("<KeyPress>", self.key_press)
         self.mw.bind("<KeyRelease>", self.key_release)
         ###self.board.set_down_click_call(self.down_click_made)
@@ -58,8 +81,73 @@ class SelectPlay:
         self.keycmd_edge = False
         self.keycmd_args = []
         self.keycmd_edge_mark = None        # Current marker edge
+        self.multi_key_cmd_str = None       # Current multi key cmd str
+        if self.run:
+            self.do_first_time()
+        self.on_end = on_end
 
 
+        
+        
+    def score_window(self):
+        """ Setup score /undo/redo window
+        """
+        move_win_x0 = 750
+        move_win_y0 = 650
+        geo = "+%d+%d" % (move_win_x0, move_win_y0)
+        if self.score_win is not None:
+            self.score_win.destroy()
+            self.score_win = None
+        self.score_win = Tk()
+    
+        self.score_win.geometry(geo)
+        move_frame = Frame(self.score_win)
+        move_frame.pack()
+        move_no_frame = Frame(move_frame)
+        move_no_frame.pack()
+        move_no = 0
+        move_no_str = "Move: %d" % move_no
+        move_font = ('Helvetica', '25')
+        move_no_label = Label(move_no_frame,
+                              text=move_no_str,
+                              font=move_font
+                              )
+        move_no_label.pack(side="left", expand=True)
+        ###move_no_label.config(width=2, height=1)
+        bw = 5
+        bh = 1
+        undo_font = ('Helvetica', '50')
+        undo_button = Button(master=move_frame, text="Undo",
+                            font=undo_font,
+                            command=self.undo_button)
+        undo_button.pack(side="left", expand=True)
+        undo_button.config(width=bw, height=bh)
+        redo_button = Button(master=move_frame, text="ReDo",
+                             font=undo_font,
+                            command=self.redo_button)
+        redo_button.pack(side="left", expand=True)
+        redo_button.config(width=bw, height=bh)
+    
+        self.setup_score_window(move_no_label=move_no_label)
+        self.update_score_window()
+
+
+        
+        
+    def undo_button(self):
+        SlTrace.lg("undoButton")
+        res = self.undo()
+        return res
+                
+        
+    def redo_button(self):
+        SlTrace.lg("redoButton")
+        res = self.redo()
+        return res
+
+
+        
+        
     def user_cmd(self, cmd):
         """ User level command, by which the user/operators
         interact with the game
@@ -108,6 +196,19 @@ class SelectPlay:
         if ec_keysym is None:
             ec_keysym = "NA"
         SlTrace.lg("key press: '%s' %s(x%02X)" % (ec, ec_keysym, ec_code))
+        if self.multi_key_cmd is None:
+            if ec_keysym == "m":
+                self.multi_key_cmd_str = ec_keysym
+        if self.multi_key_cmd_str is not None:
+            if ec_keysym == ";" or ec_keysym == " " or ec_keysym == "Return":
+                self.multi_key_cmd()
+                return
+            
+            self.multi_key_cmd_str += ec_keysym
+            return
+            
+        if SlTrace.trace("selected"):
+            self.list_selected("key_press_cmd:" + ec_keysym)
         if ec == "j":       # Info (e.g. "i" for current edge position
             edge = self.get_keycmd_edge()
             if edge is None:
@@ -149,12 +250,36 @@ class SelectPlay:
             
             self.keycmd_args.append(arg)
             if len(self.keycmd_args) >= 2:
-                self.make_new_edge(dir=self.keycmd_edge_dir, rowcol=self.keycmd_args)
+                self.make_new_edge(dir=self.keycmd_edge_dir, rowcols=self.keycmd_args)
                 self.keycmd_edge = False
             return
 
-        if ec == "m":
-            return self.make_new_edge(edge=self.keycmd_edge_mark)
+        if ec_keysym == "l":
+            part_ids = list(self.board.area.highlights)
+            SlTrace.lg("Highlighted parts(%d):" % len(part_ids))
+            for part_id in part_ids:
+                part = self.get_part(id=part_id)
+                SlTrace.lg("    %s" % part)
+            return
+
+        if ec_keysym == "s":        # List those selected
+            self.list_selected()
+            return
+
+        if ec_keysym == "t":        # List those turned on
+            part_ids = list(self.board.area.parts_by_id)
+            n_on = 0
+            for part_id in part_ids:
+                part = self.get_part(id=part_id)
+                if part.is_turned_on():
+                    n_on += 1
+            SlTrace.lg("parts turned on(%d of %d):" % (n_on, len(part_ids)))
+            for part_id in part_ids:
+                part = self.get_part(id=part_id)
+                if part.is_turned_on():
+                    SlTrace.lg("    %s" % part)
+            return
+
             
         if ec == "v" or ec == "h":
             self.keycmd_edge = True
@@ -166,12 +291,12 @@ class SelectPlay:
             self.redo()
             return
         
-        if ec == "t":       # Do info on squares(regions) touching current edge
+        if ec_keysym == "g":       # Do info on squares(regions) touching current edge
             edge = self.get_keycmd_edge()
             SlTrace.lg("%s" % edge.str_adjacents())
             return
         
-        if ec == "u":
+        if ec_keysym == "u":
             self.undo()
             return
         
@@ -192,6 +317,11 @@ class SelectPlay:
                 elif ec == "f":                 # turn off
                     part.turn_off()
 
+    
+    def list_selected(self, prefix=None):
+        self.board.area.list_selected(prefix=prefix)
+
+
     def keycmd_move_edge(self, keysym):
         """ Adjust marker based on current marker state and latest keyboard input symbol
             User remains the same.
@@ -206,6 +336,8 @@ class SelectPlay:
              
         :keysym:  keyboard key symbol(up,down,left,right,plus,minus) specifying the location of the new edge
         """
+        if SlTrace.trace("selected"):
+            self.list_selected("keycmd_move_edge before:" + keysym)
         edge = self.get_keycmd_edge()
         edge_dir = edge.sub_type()
         next_dir = edge_dir
@@ -253,27 +385,28 @@ class SelectPlay:
 
     def move_edge_cmd(self, edge, next_edge):
         """ Move between edges cmd
+         - change selection
         :edge: current edge
         :next_edge: new edge
         """
         if SlTrace.trace("track_move_edge"):
             SlTrace.lg("before move_edge_cmd:\nedge:%s\nnext_edge:%s"
                        % (edge, next_edge))
-        scmd = self.get_cmd("move_edge_position", has_prompt=True)
-        edge = copy.copy(edge)
-        ###scmd.prev_keycmd_edge_mark = edge
-        next_edge = copy.copy(next_edge)        # In case of modification
-        scmd.add_prev_parts([edge, next_edge])
-        edge.highlighted = False                # Turn off highlighting on edge we left
-        next_edge.highlighted = True
-        ###scmd.new_keycmd_edge_mark = next_edge
-        scmd.add_new_parts([edge,next_edge])    # edge changes alos
+        self.get_cmd("move_edge", undo_unit=True)   # Undo unit
+        self.cmd_select_clear(edge)
+        self.cmd_select_set(next_edge)
         self.do_cmd()
         if SlTrace.trace("track_move_edge"):
             SlTrace.lg("after move_edge_cmd:\nedge:%s\nnext_edge:%s"
                        % (edge, next_edge))
-        self.keycmd_edge_mark = next_edge       # Save updated edge
-        
+
+
+    def multi_key_cmd(self):
+        """ Execute multi-key command
+        """
+        if self.multi_key_cmd_str == "md":  """ Display all parts """
+            
+            
         
     def new_edge_mark(self, edge, highlight=True):
         """ Set new position (edge)
@@ -308,7 +441,8 @@ class SelectPlay:
     def get_keycmd_edge(self):
         """ Get current marker direction, (row, col)
         """
-        edge = self.keycmd_edge_mark
+        ####edge = self.keycmd_edge_mark
+        edge = self.get_selected_part()
         if edge is None:
             edge = self.get_part(type="edge", sub_type="h", row=1, col=1)
         return edge
@@ -349,6 +483,20 @@ class SelectPlay:
         :returns: part, None if not found
         """
         return self.board.get_part(id=id, type=type, sub_type=sub_type, row=row, col=col)
+    
+    
+    def get_selects(self):
+        """ GEt list of selected parts
+        :returns: list, empty if none
+        """
+        return self.board.get_selects()
+
+
+    def get_selected_part(self):
+        """ Get selected part
+        :returns: part, None if none selected
+        """
+        return self.board.get_selected_part()
                 
     
     def get_parts_at(self, x, y, sz_type=SelectPart.SZ_SELECT):
@@ -357,6 +505,21 @@ class SelectPlay:
         :Returns: SelectPart[]
         """
         return self.board.get_parts_at(x,y,sz_type=sz_type)
+
+
+    def run_cmd(self):
+        """ Run / continue game
+        """
+        self.run = True
+        if not self.in_game:
+            self.do_first_time()
+        self.auto_play_check()
+    
+    
+    def pause_cmd(self):
+        """ Pause game
+        """
+        self.run = False
                     
                 
             
@@ -375,17 +538,21 @@ class SelectPlay:
         """
         if player is None:
             player = self.get_player()
-        
-        self.add_prev_parts(squares)
+        if not isinstance(squares, list):
+            squares = [squares]
         for square in squares:
-            square.set_centered_text(player.label,
+            square.part_check(prefix="annotate_squares")
+        for square in squares:
+            sc = select_copy(square)
+            self.add_prev_parts(square)
+            sc.set_centered_text(player.label,
                                      color=player.color,
                                      color_bg=player.color_bg)
             if SlTrace.trace("annotate_square"):
                 SlTrace.lg("annotate_square: %s\n%s"
-                         % (square, square.str_edges()))
-        self.add_new_parts(squares)
-
+                         % (sc, sc.str_edges()))
+            self.add_new_parts(sc)
+        return
 
     def show_display(self):
         self.mw.update_idletasks()
@@ -398,6 +565,9 @@ class SelectPlay:
     
     
     def update_score_window(self):
+        if self.mw is None:
+            return
+        
         if self.move_no_label is not None:
             scmd = self.get_last_cmd()
             if scmd is None:
@@ -413,7 +583,11 @@ class SelectPlay:
         return self.get_canvas().winfo_height()
 
     def get_width(self):
-        return self.get_canvas().winfo_width()
+        canvas = self.get_canvas()
+        if canvas is None:
+            return 0
+
+        return canvas.winfo_width()
 
     def announce_player(self, tag):
         """ Announce current player, execute command
@@ -438,6 +612,8 @@ class SelectPlay:
             self.before_move(scmd)
         self.update_score_window()
         self.enable_moves()
+        if player.auto:
+            self.auto_play_pause()
 
     def add_message(self, text, color=None, font_size=40,
                    time_sec=None):
@@ -457,6 +633,33 @@ class SelectPlay:
         scmd.add_message(message)
 
 
+
+       
+    def delete_window(self):
+        """ Process Trace Control window close
+        """
+        self.mw.eval('::ttk::CancelRepeat')
+        self.playing = False        # Accept no more activity
+        self.running = False
+        self.run = False
+        SlTrace.lg("delete_window - wait for call backs to die out")
+        self.mw.after(2000)
+        SlTrace.lg("Closing windows")
+        
+        if self.score_win is not None:
+            self.score_win.destroy()
+            self.score_win = None
+            
+        if self.mw is not None:
+            self.mw.destroy()
+            self.mw = None
+        
+        if self.on_exit is not None:
+            self.on_exit()
+        
+        sys.exit()      # Else quit
+        
+        
     def disable_moves(self):
         """ Disable(ignore) moves by user
         """
@@ -484,6 +687,9 @@ class SelectPlay:
         """ Display cmd messages
         :messages:  messages to be displayed in order
         """
+        if self.mw is None:
+            return
+        
         for message in messages:
             self.do_message(message)
 
@@ -493,6 +699,9 @@ class SelectPlay:
         :message: message being displayed
                 default: current message
         """
+        if not self.mw.winfo_exists():
+            return
+        
         self.waiting_for_message = True
         if message is None:
             message = self.cur_message
@@ -504,7 +713,7 @@ class SelectPlay:
                     self.cur_message = None
                     SlTrace.lg("End of message waiting")
                     break
-                if self.mw is not None:
+                if self.mw is not None and self.mw.winfo_exists():
                     self.mw.update()
                 time.sleep(.01)
         self.waiting_for_message = False
@@ -539,6 +748,12 @@ class SelectPlay:
         :cmd: Add to cmd if one open
         """
         SlTrace.lg("do_message(%s)" % (message.text), "execute")
+        if not self.run:
+            return
+        
+        if self.mw is None or not self.mw.winfo_exists():
+            return
+        
         self.wait_message()
         text = message.text
         color = message.color
@@ -546,11 +761,18 @@ class SelectPlay:
         if font_size is None:
             font_size=40
         time_sec = message.time_sec
-
-        if self.msg is not None:
-            self.msg.destroy()
-            self.msg = None
-        self.msg = Message(self.mw, text=text, width=self.get_width())
+        
+        if self.mw is None or not self.mw.winfo_exists():
+            return
+        
+        if self.mw is not None and self.mw.winfo_exists():
+            if self.msg is not None:
+                self.msg.destroy()
+                self.msg = None
+        width = self.get_width()
+        if width < 500:
+            width = 500
+        self.msg = Message(self.mw, text=text, width=width) # Seems to be pixels!
         self.msg.config(fg=color, bg='white',
                         font=('times', font_size, 'italic'))
         self.msg.pack()
@@ -606,11 +828,13 @@ class SelectPlay:
 
     
 
-    def get_cmd(self, action=None, has_prompt=False):
+    def get_cmd(self, action=None, has_prompt=False, undo_unit=False):
         """ Get current command, else new command
         :action: - start new command with this action name
                 defalt use current cmd
         :has_prompt: True cmd contains prompt, starting cmd sequence
+        :undo_unit: True - this command is single undoable unit
+                    default: False
         """
         if action is None:
             cmd = self.select_cmd
@@ -621,7 +845,8 @@ class SelectPlay:
             if self.select_cmd is not None:
                 raise SelectError("get_cmd: previous cmd(%s) not completed"
                                    % self.select_cmd)
-        self.select_cmd = SelectCommandPlay(action, has_prompt=has_prompt)
+        self.select_cmd = SelectCommandPlay(action, has_prompt=has_prompt,
+                                             undo_unit=undo_unit)
         return self.select_cmd
 
 
@@ -666,7 +891,7 @@ class SelectPlay:
         if not isinstance(parts, list):
             parts = [parts]
         for part in parts:
-            self.prev_mods.append(copy.copy(part))
+            self.prev_mods.append(select_copy(part))
 
     def add_new_mods(self, parts):
         """ Add parts before any modifications
@@ -675,7 +900,7 @@ class SelectPlay:
         if not isinstance(parts, list):
             parts = [parts]
         for part in parts:
-            self.new_mods.append(copy.copy(part))
+            self.new_mods.append(select_copy(part))
         
         
     def clear_mods(self):
@@ -683,6 +908,40 @@ class SelectPlay:
         """
         self.prev_mods = []
         self.new_mods = []
+        
+        
+    def cmd_select_clear(self, parts=None):
+        """ Select part(s)
+        :parts: part or list of parts
+                default: all selected
+        """
+        scmd = self.get_cmd()
+        scmd.select_clear(parts)
+
+
+    def cmd_select_set(self, parts, keep=False):
+        """ Select part(s)
+        :parts: part(s) to select/deselect
+        :keep: keep previous selected
+                default = falsu
+        """
+        scmd = self.get_cmd()
+        scmd.select_set(parts, keep=keep)
+        
+        
+    def select_clear(self, parts=None):
+        """ Select part(s)
+        :parts: part or list of parts
+                default: all selected
+        """
+        self.board.area.select_clear(parts=parts)
+
+
+    def select_set(self, parts=None, keep=False):
+        """ Select part(s)
+        :parts: part(s) to select/deselect
+        """
+        self.board.area.select_set(parts=parts, keep=keep)
         
 
     def set_new_player(self, player):
@@ -697,7 +956,14 @@ class SelectPlay:
         if scmd is None:
             raise SelectError("set_prev_player with no SelectCommand")
         scmd.set_prev_player(player)
-        
+    
+    
+    def set_stroke_move(self, use_stroke=True):
+        """ Enable/Disable use of stroke moves
+        Generally for use in touch screens
+        """
+        self.board.set_stroke_move(use_stroke)
+            
     
     def add_prev_parts(self, parts):
         scmd = self.select_cmd
@@ -750,20 +1016,200 @@ class SelectPlay:
         self.select_cmd = None      # Clear for next time
         
         
-    def start_move(self):
-        self.next_move_no()
-        self.announce_player("start_move")
+    def complete_cmd(self):
+        """ Complete command if one in progress
+        """
+        if self.select_cmd is not None:
+            self.do_cmd()
+
+    def auto_play_check_arm(self, delay=None):
+        """ Arm auto_play checking
+        :delay: delay in seconds default: self.auto_play_check_ms * 1000.
+        """
+        if delay is None:
+            delay_ms = self.auto_play_check_ms
+        else:
+            delay_ms = int(delay*1000)
+
+        self.mw.after(delay_ms, self.auto_play_check)
+        self.enable_moves()                 # Allow manual operation/moves
+
+
+    def auto_play_pause(self):
+        """ Pause for auto player
+        Returns after delay
+        """
+        if not self.playing:
+            return              # Suppress activity
+
+        player = self.get_player()
+        if not player.auto:
+            return
+        self.auto_delay_waiting = True
+        pause = player.pause
+        delay_ms = int(pause*1000)
+        self.mw.after(delay_ms)
+        return
+            
+        
+    def auto_play_check(self):
+        """ Called periodically to check for auto players
+        """
+        if not self.playing:
+            return              # Suppress activity
+        
+        if not self.run:
+            self.auto_play_check_arm()
+            return
+        
+        player = self.get_player()
+        if not player.auto:
+            ###self.auto_play_check_arm()
+            return
+        
+        if not self.auto_delay_waiting and player.pause > 0:
+            self.auto_delay_waiting = True
+            self.auto_play_check_arm(player.pause)
+            return
+        
+        self.auto_delay_waiting = False
+        self.auto_play(player)
+        self.mw.after(self.auto_play_check_ms, self.auto_play_check)
         
             
+    def auto_play(self, player):
+        """ Do automatic move based on "level" of player
+        """
+        legal_moves = self.get_legal_moves()
+        if len(legal_moves) == 0:
+            self.end_game("No more moves!")
+            return
+        
+        if player.level > 0:
+            self.auto_play_positive(player)
+        elif player.level < 0:
+            self.auto_play_negative(player)
+        else:
+            self.auto_play_random(player)
+
+
+
+    def auto_play_positive(self, player):
+        """ Positive player - trying to "win"
+        """
+        level = player.level
+        LEVEL_SQUARE = 1                # Complete a square
+        LEVEL_NO_GIVE_SQUARE = 2        # Provide possible square to next play
+        legal_moves = self.get_legal_moves()
+        if level >= LEVEL_SQUARE:
+            squares = []
+            square_moves = []
+            for move in legal_moves:
+                if self.is_square_complete(move, squares, ifadd=True):
+                    square_moves.append(move)
+            if len(square_moves) > 0:
+                nr = random.randint(0, len(square_moves)-1)
+                next_move = square_moves[nr]
+                self.new_edge(next_move)
+                SlTrace.lg("positive play square for %s: %s" % (player, next_move))
+                return
+
+        self.auto_play_random(player)         # Default - just play one
+
+
+    def auto_play_negative(self, player=None):
+        """ Negative player - trying to "loose"
+        """
+        if player is None:
+            player = self.get_player()
+
+        level = player.level
+        LEVEL_SQUARE = 1                # Complete a square
+        LEVEL_NO_GIVE_SQUARE = 2        # Provide possible square to next play
+        legal_moves = self.get_legal_moves()
+        if abs(level) >= LEVEL_SQUARE:
+            squares = []
+            square_moves = []
+            for move in legal_moves:
+                if not self.is_square_complete(move, squares, ifadd=True):
+                    square_moves.append(move)
+            if len(square_moves) > 0:
+                nr = random.randint(0, len(square_moves)-1)
+                next_move = square_moves[nr]
+                self.new_edge(next_move)
+                SlTrace.lg("negative play square for %s: %s" % (player, next_move))
+                return
+            
+            
+            
+        self.auto_play_random(player)
+    
+
+    def auto_play_random(self, player=None):
+        """ Play the random next legal move
+        """
+        if player is None:
+            player = self.get_player()
+        legal_moves = self.get_legal_moves()
+        nr = random.randint(0, len(legal_moves)-1)
+        next_move = legal_moves[nr]
+        self.new_edge(next_move)
+        
+        
+    def get_legal_moves(self, ):
+        return self.board.get_legal_moves()
+        
+        
+    def start_move(self):
+        if not self.run:
+            time.sleep(.1)
+            return
+        
+        legal_moves = self.get_legal_moves()
+        if len(legal_moves) == 0:
+            self.end_game("NO more legal moves!")
+            return
+        
+        
+        self.next_move_no()
+        self.announce_player("start_move")
+        if SlTrace.trace("selected"):
+            self.list_selected("After start_move")
+        player = self.get_player()
+        if player.auto:
+            self.auto_play_pause()
+            self.auto_play(player)
+        ###self.start_move()
+
+
+    def end_game(self, msg=None):
+        """ End the game
+        :msg: message /reason
+        """
+        scmd = self.get_cmd("end_of_game")
+        if msg is not None:
+            SlTrace.lg("NO more legal moves!")
+            self.add_message("No more legal moves",
+                         time_sec=1)
+            
+        self.add_message("Game Over")
+        self.do_cmd()
+        self.pause_cmd()
+        if self.on_end is not None:
+            self.on_end()
+
+            
     def do_first_time(self):
+        self.in_game = True
         SlTrace.lg("do_first_time", "execute")
         self.set_move_no(0)
         self.get_cmd("start_game")
         self.add_message("It's A New Game",
                          time_sec=1)
-        self.set_move_no(1)
+        ###self.set_move_no(1)
         self.do_cmd()
-        self.announce_player("first_move")
+        ###self.announce_player("first_move")
+        self.start_move()
 
     def set_move_no(self, move_no):
         self.command_manager.set_move_no(move_no)
@@ -774,14 +1220,14 @@ class SelectPlay:
         
         
 
-    def is_square_complete(self, edge, squares=None):
+    def is_square_complete(self, edge, squares=None, ifadd=False):
         """ Determine if this edge completes a square(s)
         :edge: - potential completing edge
         :squares: list, to which any completed squares(regions) are added
                 Default: no regions are added
         :returns: True iff one or more squares are completed
         """
-        return self.board.is_square_complete(edge, squares=squares)
+        return self.board.is_square_complete(edge, squares=squares, ifadd=ifadd)
 
 
     def down_click(self, part, event=None):
@@ -793,6 +1239,7 @@ class SelectPlay:
             return False
         
         if part.is_edge():
+            part.select_set()
             return self.new_edge(part)
         
         return False
@@ -805,19 +1252,26 @@ class SelectPlay:
                 2. Announced new edge creation by user
         :edge: updated edge component
         """
+        if not edge.connecteds:
+            SlTrace.lg("new_edge id=%d no connecteds" % edge.part_id)
+            return
+        
         self.disable_moves()                    # Disable input till ready
         self.clear_redo()
         prev_player = self.get_player()
         next_player = prev_player                    # Change if appropriate
         SlTrace.lg("New edge %s by %s"
                     % (edge, prev_player), "new_edge")
+        self.complete_cmd()                     # Complet current command if one
         scmd = self.get_cmd("new_edge")
         scmd.set_prev_player(prev_player)
         scmd.add_prev_parts(edge)               # Save previous edge state 
         self.mark_edge(edge, prev_player, move_no=scmd.move_no)
-        self.new_edge_mark(edge)
         self.add_new_parts(edge)
+        self.cmd_select_set(edge)
         self.do_cmd()                               # move complete
+        if SlTrace.trace("selected"):
+            self.list_selected("After new_edge")
         self.clear_mods()
 
         scmd = self.get_cmd("after_edge")
@@ -828,14 +1282,23 @@ class SelectPlay:
             self.add_prev_parts(edge)
             edge.highlight_clear()          # ??? Should we just set flag??
             self.completed_square(edge, regions)
+            if len(regions) == 1:
+                plu = ""
+            else:
+                plu = "s" 
+            SlTrace.lg("Square%s Completed" % (plu))
         else:
             next_player = self.get_next_player()      # Advance to next player
+        if SlTrace.trace("selected"):
+            self.list_selected("After square check")
 
         scmd.set_new_player(next_player)
         self.do_cmd()
-                                                        # move complete
+        if SlTrace.trace("selected"):
+            self.list_selected("After next_player set")
+        self.enable_moves()
         self.start_move()
-
+        
 
     def clear_redo(self):
         """ Clear redo (i.e. undo_stack for possible redo)

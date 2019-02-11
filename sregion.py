@@ -295,15 +295,15 @@ class SelectReg(object):
             chr_w = 5
             chr_h = chr_w*2
             if dir_x != 0:      # sideways
-                offset_x = -len(str(edge.id))*chr_w/2 + chr_w
+                offset_x = -len(str(edge.part_id))*chr_w/2 + chr_w
                 offset_y = chr_h
             if dir_y != 0:      # up/down
-                offset_x = len(str(edge.id))*chr_w
+                offset_x = len(str(edge.part_id))*chr_w
                 offset_y = 0    
         
             cx = (c1x+c3x)/2 + offset_x
             cy = (c1y+c3y)/2 + offset_y
-            edge.name_tag = self.display_text((cx, cy), text=str(edge.id))
+            edge.name_tag = self.display_text((cx, cy), text=str(edge.part_id))
 
     def down (self, event):
         self.is_down = True
@@ -467,7 +467,7 @@ class SelectReg(object):
             parts = other_parts
                 
         for part in parts:
-            if part.id in self.highlights:
+            if part.part_id in self.highlights:
                 highlight_tag = part.highlight_tag
                 if highlight_tag is not None:
                     self.canvas.delete(highlight_tag)     # Remove highlight figure
@@ -475,14 +475,14 @@ class SelectReg(object):
                 part.highlighted = False
                 if part.display_tag is None:
                     self.display_set(part)                # reestablish original display
-                del self.highlights[part.id]
-                print("highlight_clear %d: %s" % (part.id, part))
+                del self.highlights[part.part_id]
+                print("highlight_clear %d: %s" % (part.part_id, part))
         
         
     def select_set(self, part):
         """ Select handle
         """
-        self.selects[part.id] = part
+        self.selects[part.part_id] = part
         
         
     def select_remove(self, selects):
@@ -612,12 +612,12 @@ class SelectReg(object):
     def add_part(self, part):
         """ Add new part to list
         """
-        if part.id in self.parts_by_id:
+        if part.part_id in self.parts_by_id:
             return
         
         print("add_part: %s" % part)
         self.parts.append(part)
-        self.parts_by_id[part.id] = part
+        self.parts_by_id[part.part_id] = part
         
         
                             

@@ -13,13 +13,20 @@ from docutils.nodes import reference
 # Here, we are creating our class, Window, and inheriting from the Frame
 # class. Frame is a class from the tkinter module. (see Lib/tkinter/__init__)
 class SelectWindow(Frame):
+
+    def __deepcopy__(self, memo=None):
+        """ provide deep copy by just passing shallow copy of self,
+        avoiding tkparts inside sel_area
+        """
+        SlTrace.lg("SelectArea __deepcopy__", "copy")
+        return self
             
         
     # Define settings upon initialization. Here you can specify
     def __init__(self,
                  master=None,
                  title=None,
-                 pgmExit=exit,
+                 pgmExit=sys.exit,
                  cmd_proc=False,
                  cmd_file=None,
                  arrange_selection=True,

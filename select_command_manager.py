@@ -1,6 +1,6 @@
 # select_command.py    12Nov2018
-import copy
 
+from select_fun import select_copy
 from select_trace import SlTrace
 from select_error import SelectError
 from openpyxl.utils.units import inch_to_dxa
@@ -103,6 +103,7 @@ class SelectCommandManager:
             1. One found that can't undo
             2. One fails undo
             3. A has_prompt completes
+            4. A command has undo_unit
         """
         SlTrace.lg("undo", "execute")
         while True:
@@ -115,7 +116,11 @@ class SelectCommandManager:
             if not res:
                 SlTrace.lg("Undo failed")
                 return res
-            
+        
+            if cmd.undo_unit:
+                SlTrace.lg("undo_unit")
+                return res
+                
             lud = self.get_last_command()
             if lud is None:
                 return res          # Stack empty
@@ -155,6 +160,10 @@ class SelectCommandManager:
             if not self.can_redo():
                 SlTrace.lg("Can't redo")
                 return res
+        
+            if cmd.undo_unit:
+                SlTrace.lg("redo: undo_unit")
+                return res
 
             lud = self.undo_stack[-1]
             if lud.has_prompt:
@@ -180,7 +189,7 @@ class SelectCommandManager:
     
     
     def save_command(self, bcmd):
-        self.command_stack.append(copy.copy(bcmd))
+        self.command_stack.append(bcmd)
         self.cmd_stack_print("save_command", "execute_stack")
 
 

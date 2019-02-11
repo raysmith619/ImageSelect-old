@@ -144,6 +144,39 @@ class SelectSquares(object):
         :returns: part, None if not found
         """
         return self.area.get_part(id=id, type=type, sub_type=sub_type, row=row, col=col)
+
+ 
+    def get_parts(self, pt_type=None):
+        """ Get parts in figure
+        :pt_type: part type, default: all parts
+                "corner", "edge", "region"
+        """
+        return self.area.get_parts(pt_type=pt_type)
+    
+    
+    def get_legal_moves(self):
+        """  Get edges that would be legal moves
+        """
+        edges = self.get_parts(pt_type="edge")
+        moves = []
+        for edge in edges:
+            if not edge.is_turned_on():
+                moves.append(edge)
+        return moves
+    
+    
+    def get_selects(self):
+        """ GEt list of selected parts
+        :returns: list, empty if none
+        """
+        return self.area.get_selects()
+
+
+    def get_selected_part(self):
+        """ Get selected part
+        :returns: selected part, None if none selected
+        """
+        return self.area.get_selected_part()
                 
     
     def get_parts_at(self, x, y, sz_type=SelectPart.SZ_SELECT):
@@ -198,14 +231,14 @@ class SelectSquares(object):
         self.down_click_call = down_click_call
 
 
-    def is_square_complete(self, edge, squares=None):
+    def is_square_complete(self, edge, squares=None, ifadd=False):
         """ Determine if this edge completes a square(s)
         :edge: - potential completing edge
         :squares: list, to which any completed squares(regions) are added
                 Default: no regions are added
         :returns: True iff one or more squares are completed
         """
-        return self.area.is_square_complete(edge, squares=squares)
+        return self.area.is_square_complete(edge, squares=squares, ifadd=ifadd)
         
         
     def new_edge(self, edge):
@@ -294,10 +327,10 @@ class SelectSquares(object):
         :parts: list of parts to be removed
         """
         for part in parts:
-            d_part = self.area.get_part(id=part.id)
+            d_part = self.area.get_part(id=part.part_id)
             if d_part is None:
                 raise SelectError("No part(id=%d) found %s"
-                                   % (part.id, part))
+                                   % (part.part_id, part))
                 continue
             if d_part.row == 2:
                 pass
@@ -310,23 +343,50 @@ class SelectSquares(object):
         :parts: list of parts to be env_added
         """
         for part in parts:
-            d_part = self.area.get_part(id=part.id)
+            d_part = self.area.get_part(id=part.part_id)
             if d_part is None:
                 raise SelectError("insert_parts: No part(id=%d) found %s"
-                                   % (part.id, part))
+                                   % (part.part_id, part))
                 continue
             self.set_part(part)
+        
+        
+    def select_clear(self, parts=None):
+        """ Select part(s)
+        :parts: part or list of parts
+                default: all selected
+        """
+        self.area.select_clear(parts=parts)
 
+
+    def select_set(self, parts, keep=False):
+        """ Select part(s)
+        :parts: part(s) to select/deselect
+        """
+        self.area.select_set(parts, keep=keep)
+        
+        
+        
 
     def set_part(self, part):
         """ Set base part.contents to values of Part
         
         :part: part structure with new values
         """
-        pt = self.area.parts_by_id[part.id]
+        pt = self.area.parts_by_id[part.part_id]
         if pt is None:
             SlTrace.lg("part %s(%d) is not in area - skipped"
-                       % (part, part.id))
+                       % (part, part.part_id))
             return
 
         pt.__dict__ = part.__dict__.copy()
+        
+        
+    
+    
+    def set_stroke_move(self, use_stroke=True):
+        """ Enable/Disable use of stroke moves
+        Generally for use in touch screens
+        """
+        self.area.set_stroke_move(use_stroke)
+        

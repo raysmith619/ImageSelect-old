@@ -1,6 +1,8 @@
 # select_part.py        
 from tkinter import font
+import copy
 
+from select_fun import select_copy
 from select_error import SelectError
 from select_loc import SelectLoc
 from select_trace import SlTrace
@@ -63,7 +65,7 @@ class SelectPart(object):
     region_fill = "clear"   # Default edge color
     region_fill_highlight = "lightgray"   # Default edge highlight color
 
-    id = 0          # Unique handle ID
+    part_id = 0          # Unique handle ID
             
             
     @staticmethod
@@ -176,10 +178,91 @@ class SelectPart(object):
         
         raise SelectError("loc_key - unrecognized part_type: %s" % part_type)
 
+    '''Use default copy.deepcopy()
+    def __deepcopy__(self, memo=None):
+        """ provide deep copy as a custimized "constructor",
+        reducing recusion
+        """
+        new_copy = SelectPart(self.sel_area,self.part_type,
+                id=self.part_id)
+        new_copy.set_self(self)         
+        return new_copy
+    '''
+   
 
-    
+    def copy(self):
+        """ Return copy of self, independent to allow independent modifications
+        """
+        if isinstance(self, str):        # Hack if called with string
+            return self
+        
+        self.part_check(prefix=" copy before __init__")
+        new_copy = copy.copy(self)      # Bootstap
+        new_copy.__init__(self.sel_area, part_id=self.part_id, loc=self.loc)                 
+        self.part_check(prefix="self after __init__")
+                 
+        new_copy.loc = self.loc
+        new_copy.display_tag = self.display_tag
+        new_copy.xy = self.xy
+        new_copy.display_shape = self.display_shape
+        new_copy.display_size = self.display_size
+        new_copy.player = self.player
+        new_copy.color = self.color
+        new_copy.icolor = self.icolor
+        new_copy.icolor2 = self.icolor2
+        new_copy.draggable = self.draggable
+        new_copy.invisible = self.invisible
+        new_copy.check_mod = self.check_mod
+        new_copy.row = self.row
+        new_copy.col = self.col
+        new_copy.part_id = self.part_id
+        new_copy.parts_index = self.parts_index
+        new_copy.loc_key_ = self.loc_key_
+        new_copy.connecteds = copy.copy(self.connecteds)
+        new_copy.adjacents = copy.copy(self.adjacents)
+        new_copy.part_type = self.part_type
+        new_copy.highlighted = self.highlighted
+        new_copy.highlight_tag = self.highlight_tag
+        new_copy.display_multi_tags = self.display_multi_tags    # For parts with multiple sets of display tags
+        new_copy.turned_on = self.turned_on
+        new_copy.move_no = self.move_no
+        new_copy.on_highlighting = self.on_highlighting     # allow highlighting if on
+        new_copy.off_highlighting = self.off_highlighting    # allow highlighting if off
+        new_copy.move_no_tag = self.move_no_tag         # tag for move_no, if any
+                                        # is selected - property of sel_area
+
+        new_copy.edge_width_display = self.edge_width_display
+        new_copy.edge_width_select =  self.edge_width_select
+        new_copy.edge_width_standoff = self.edge_width_standoff
+        new_copy.edge_width_enlarge = self.edge_width_enlarge
+        new_copy.move_tag = self.move_tag        # Used to display move info
+        new_copy.partno_tag = self.partno_tag      # Used to display part number info
+        new_copy.text_tags = self.text_tags         # appended texts if any
+        new_copy.centered_text = select_copy(self.centered_text)     # CenteredText entries
+        new_copy.blinker = select_copy(self.blinker)         # If blinking
+        new_copy.loc = self.loc
+        new_copy.part_check(self, prefix="part __init__ at end")         
+        
+        return new_copy
+
+
+    def part_check(self, copy=None, prefix=None):
+        if prefix is None:
+            prefix = ""
+        if copy is None:
+            copy = self
+        if copy.part_id not in copy.sel_area.parts_by_id:
+            SlTrace.lg("part_check:%s part not in parts_by_id %s" % (prefix, copy))
+        elif not copy.connecteds:
+            SlTrace.lg("part_check:%s display_clear no connecteds %s" % (prefix, copy))
+        else:
+            SlTrace.lg("part_check:%s OK" % prefix, "part_check_ok")    
+        
+        
     def __init__(self, sel_area, part_type,
-                 point=None, rect=None, tag=None, xy=None,
+                 part_id=None,
+                 point=None, rect=None, loc=None,
+                 tag=None, xy=None,
                  display_shape=None,
                  display_size=None,
                  player=None,
@@ -193,7 +276,8 @@ class SelectPart(object):
         """ Selection Part setup
         :sel_area: - reference to region of operation and display
         :part_type: string describing type edge, corner, region
-        :point, rect: description of location
+        :part_id:  internal id - default generated
+        :point, rect, loc: description of location
         :display_shape: - if present, special display shape
         :display_size: - if present, special display size
         :player: player/owner of part
@@ -206,17 +290,24 @@ class SelectPart(object):
         :row: optional row number, generally 1 - n
         :col: optional col number, generally 1 - n
         """
+         
         if sel_area is None:
             raise SelectError("SelectPart missing sel_area")
-        
         self.sel_area = sel_area
-        SelectPart.id += 1
-        self.id = SelectPart.id
+         
+        if part_type is None:
+            raise SelectError("SelectPart missing part_type")
+        self.part_type = part_type
+        
+        
+        if part_id is None:
+            SelectPart.part_id += 1
+            part_id = SelectPart.part_id
+        self.part_id = part_id
         self.parts_index = None
         self.loc_key_ = None
         self.connecteds = []            # Start with none connected
         self.adjacents = []             # Start with none adjacent
-        self.part_type = part_type
         self.highlighted = False
         self.highlight_tag = None
         self.display_tag = tag
@@ -233,6 +324,9 @@ class SelectPart(object):
         self.on_highlighting = True     # allow highlighting if on
         self.off_highlighting = True    # allow highlighting if off
         self.move_no_tag = None         # tag for move_no, if any
+                                        # is selected - property of sel_area
+        self.xy = xy
+
         self.set_edge_width(SelectPart.edge_width_display,
                                      SelectPart.edge_width_select,
                                      SelectPart.edge_width_standoff,
@@ -253,9 +347,63 @@ class SelectPart(object):
             self.loc = SelectLoc(point=point)
         elif rect is not None:
             self.loc = SelectLoc(rect=rect)
+        elif loc is not None:
+            self.loc = loc
         else:
-            raise SelectError("SelectPart: neither point nor rect type")
+            raise SelectError("SelectPart: neither point nor rect nor loc type")
+    
 
+    def set_copy(self, copy):
+        """ Setup us as given object
+        """
+        if isinstance(copy, str):
+            return
+        
+        self.part_check(copy, prefix="set_copy copy before __init__")         
+        self.__init__(copy.sel_area, part_id=copy.part_id, loc=copy.loc)
+        self.part_check(copy, prefix="set_copy copy after __init__")         
+        self.loc=copy.loc
+        self.display_tag=copy.display_tag
+        self.xy=copy.xy
+        self.display_shape=copy.display_shape
+        self.display_size=copy.display_size
+        self.player=copy.player
+        self.color=copy.color
+        self.icolor=copy.icolor
+        self.icolor2=copy.icolor2
+        self.draggable=copy.draggable
+        self.invisible=copy.invisible
+        self.check_mod=copy.check_mod
+        self.row=copy.row
+        self.col=copy.col
+        self.part_id = copy.part_id
+        self.parts_index = copy.parts_index
+        self.loc_key_ = copy.loc_key_
+        self.connecteds = copy.connecteds
+        self.adjacents = copy.adjacents
+        self.part_type = copy.part_type
+        self.highlighted = copy.highlighted
+        self.highlight_tag = copy.highlight_tag
+        self.display_multi_tags = copy.display_multi_tags    # For parts with multiple sets of display tags
+        self.turned_on = copy.turned_on
+        self.move_no = copy.move_no
+        self.on_highlighting = copy.on_highlighting     # allow highlighting if on
+        self.off_highlighting = copy.off_highlighting    # allow highlighting if off
+        self.move_no_tag = copy.move_no_tag         # tag for move_no, if any
+                                        # is selected - property of sel_area
+
+        self.edge_width_display = copy.edge_width_display
+        self.edge_width_select =  copy.edge_width_select
+        self.edge_width_standoff = copy.edge_width_standoff
+        self.edge_width_enlarge = copy.edge_width_enlarge
+        self.move_tag = copy.move_tag        # Used to display move info
+        self.partno_tag = copy.partno_tag      # Used to display part number info
+        self.text_tags = copy.text_tags         # appended texts if any
+        self.centered_text = copy.centered_text     # CenteredText entries
+        self.blinker = copy.blinker         # If blinking
+        self.loc = copy.loc
+        self.part_check(self, prefix="part __init__ at end")         
+        
 
     def __str__(self):
         """ Provide reasonable view of part
@@ -264,7 +412,7 @@ class SelectPart(object):
         sub_type = self.sub_type()
         if sub_type:
             st += self.sub_type_desc()
-        st += " id=%d" % self.id
+        st += " id=%d" % self.part_id
         if self.move_no is not None:
             st += " move=%d" % self.move_no
         if self.move_no_tag is not None:
@@ -498,19 +646,34 @@ class SelectPart(object):
         ctext_y = y         # Write starting at lower left corner
         ctext_x = x         # estimate width
         text_font = font.Font(family='Helvetica', size=-int(height))
+        if ct.text_bg_tag is not None:
+            self.sel_area.canvas.delete(ct.text_bg_tag)
+            ct.text_bg_tag = None
+        c1x,c1y,c3x,c3y = self.get_rect()
+        ct.text_bg_tag = self.sel_area.canvas.create_rectangle(
+                                    c1x, c1y, c3x, c3y,
+                                    fill=color_bg)
+
         if ct.text_tag is not None:
             self.sel_area.canvas.delete(ct.text_tag)
             ct.text_tag = None
-        tag = self.sel_area.canvas.create_text(ctext_x, ctext_y, font=text_font, text=text,
+        ct.text_tag = self.sel_area.canvas.create_text(ctext_x, ctext_y, font=text_font, text=text,
                                                fill=color)
-        ct.text_tag = tag
 
 
 
     def display_clear(self):
         """ Clear display of this part
         """
-        if not self.is_highlighted() and self.display_tag is not None:   # leave alone if highlighted
+        if self.part_id not in self.sel_area.parts_by_id:
+            SlTrace.lg("part not in parts_by_id")
+        if not self.connecteds:
+            SlTrace.lg("display_clear no connecteds %s" % self)
+        if self.blinker is not None:
+            self.blinker.stop()
+            self.blinker = None
+        self.clear_display_multi_tags()
+        if self.display_tag is not None:   # leave alone if highlighted
             if isinstance(self.display_tag, list):
                 for tag in self.display_tag:
                     self.sel_area.canvas.delete(tag)
@@ -524,9 +687,6 @@ class SelectPart(object):
             else:
                 self.sel_area.canvas.delete(self.highlight_tag)                
             self.highlight_tag = None
-        if self.blinker is not None:
-            self.blinker.stop()
-            self.blinker = None
         if self.display_multi_tags:
             self.clear_display_multi_tags()
         if self.move_tag is not None:
@@ -535,7 +695,7 @@ class SelectPart(object):
         if self.partno_tag is not None:
             self.sel_area.canvas.delete(self.partno_tag)
             self.partno_tag = None
-        self.clear_centered_texts(keep_entries=True)
+        self.clear_centered_texts()
         if self.text_tags:          # non centered_text
             for tag in self.text_tags:
                 self.sel_area.canvas.delete(tag)
@@ -544,22 +704,20 @@ class SelectPart(object):
             self.sel_area.canvas.delete(self.move_no_tag)
             self.move_no_tag = None
 
-    def clear_centered_texts(self, keep_entries=False):
+    def clear_centered_texts(self):
         """ Clear out all centered texts, display only
-        :keep_entries: True keep entry info, default: clear out
         """
         if self.centered_text:
             for ct in self.centered_text:
                 self.clear_centered_text(ct)
-        if not keep_entries:
-            self.centered_text = []
-
+            
+            
     def clear_centered_text(self, ct):
         """ Clear centered text display, leaving info
         """
-        if ct.text_tag is not None:
-            self.sel_area.canvas.delete(ct.text_tag)
-            ct.text_tag = None
+        if ct is not None:
+            ct.delete()
+
 
     def clear_move(self):
         """ Remove move_no from part
@@ -569,6 +727,13 @@ class SelectPart(object):
                 self.sel_area.canvas.delete(self.move_no_tag)
             self.move_no = None
 
+    def select_copy(self, levels=3):
+        """ Copy part to allow most manipulations of the copy
+        without affecting the original
+        """
+        return select_copy(self, use_select_copy=False)
+        
+            
     def display_info(self, tag=None):
         """ Display part info, with optional tag
         """
@@ -613,23 +778,31 @@ class SelectPart(object):
         
     def highlight_clear(self, tag=None, display=True):
         ### HACKif self.is_highlighted():    ???
-        if self.id in self.sel_area.highlights:
-            del self.sel_area.highlights[self.id]
+        if self.part_id in self.sel_area.highlights:
+            del self.sel_area.highlights[self.part_id]
         if self.highlight_tag is not None:
             self.sel_area.canvas.delete(self.highlight_tag)
             self.display_tag = None
         self.highlighted = False
-        if self.blinker is not None:
-            self.blinker.stop()
-            self.blinker = None
         if display:
             self.display()
         
-    def highlight_set(self, display=True, highlight_limit=None):
+    def highlight_set(self, display=True, highlight_limit=None, keep=False):
+        """ Highlight part
+        :display: True - redisplay part
+        :highlight_limit: limit highlighted time default: no limiting
+        :keep: True keep previously highlighted part(s), default: clear previously highlighted
+        """
+        if not keep:
+            for part_id in list(self.sel_area.highlights):
+                ph = self.sel_area.highlights[part_id]
+                part = ph.part
+                part.highlight_clear()
+            
         self.highlighted = True
         if display:
             self.display() 
-        self.sel_area.highlights[self.id] = PartHighlight(self,
+        self.sel_area.highlights[self.part_id] = PartHighlight(self,
                                     highlight_limit=highlight_limit)
 
 
@@ -1167,7 +1340,7 @@ class SelectPart(object):
         :width: width of text, default: just fits in square
         :display: True display square default: do display
         """
-        centered_text = CenteredText(text, x=x, y=y,
+        centered_text = CenteredText(self, text, x=x, y=y,
                                      color=color, color_bg=color_bg,
                                      height=height, width=width)
         self.centered_text.append(centered_text)
@@ -1190,7 +1363,7 @@ class SelectPart(object):
         """ Test if part already adjacent to us
         """
         for con in self.adjacents:
-            if part.id == con.id:
+            if part.part_id == con.part_id:
                 return True
     
     
@@ -1198,7 +1371,7 @@ class SelectPart(object):
         """ Test if handle already connected to us
         """
         for con in self.connecteds:
-            if handle.id == con.id:
+            if handle.part_id == con.part_id:
                 return True
 
     def is_covering(self, part):
@@ -1214,17 +1387,22 @@ class SelectPart(object):
     def is_same(self, handle):
         """ Determine if handle is same as us
         """
-        if self.id == handle.id:
+        if self.part_id == handle.part_id:
             return True
         return False
-        
+
+
+    def is_selected(self):
+        return self.sel_area.is_selected(self)
+    
+            
     def set_edge_width(self, display=None, select=None, standoff=None, enlarge=None):
         """ Set edge width(s)
         """
         if display is not None:
             self.edge_width_display = display
         if select is not None:
-            self.edge_width_select - select
+            self.edge_width_select = select
         if standoff is not None:
             self.edge_width_standoff = standoff
         if enlarge is not None:
@@ -1232,6 +1410,23 @@ class SelectPart(object):
             return (self.edge_width_display, self.edge_width_select,
                     self.edge_width_standoff, self.edge_width_enlarge)
 
+
+    def select_clear(self):
+        """ Set selected state
+        :selected: selected state default: True
+        """
+        self.sel_area.select_clear(self)
+
+
+    def select_set(self, selected=True):
+        """ Set selected state
+        :selected: selected state default: True
+        """
+        if selected:
+            self.sel_area.select_set(self)
+        else:
+            self.sel_area.select_clear(self)
+         
 
     def is_turned_on(self):
         """ Check if element is "on"
@@ -1261,8 +1456,6 @@ class SelectPart(object):
         """ Set part to be "on", may be "Game" specific
             default action set "on", and invisible = False
         :display: display part, default = True
-        :icolor: identifing color default: none
-        :icolor2: identifying color2 default: none
         """
         if self.check_mod is not None:
             self.check_mod(self, mod_type=SelectPart.MOD_BEFORE, desc="turn_on")
@@ -1270,10 +1463,8 @@ class SelectPart(object):
         self.invisible = False
         self.player = player
         self.move_no = move_no
-        if not self.on_highlighting:
-            self.highlight_clear()
         if display:
-            self.sel_area.move_announce()
+            ###self.sel_area.move_announce()
             self.display()
         if self.check_mod is not None:
             self.check_mod(self, mod_type=SelectPart.MOD_AFTER, desc="turn_on")

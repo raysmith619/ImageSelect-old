@@ -14,14 +14,19 @@ class SelectCorner(SelectPart):
     corner_fill = "red" # Default corner color
     corner_fill_highlight = "pink"      # Default corner highlight color
 
+
+    '''Use default copy.deepcopy()
+    def __deepcopy__(self, memo=None):
+        """ provide deep copy as a custimized "constructor",
+        reducing recusion
+        """
+        res = self.copy()        
+        return res
+    '''
+
     
-    def __init__(self, sel_area, point=None,
-                 display_shape=None,
-                 display_size=None,
-                 draggable=True, invisible=False):
-        SelectPart.__init__(self, sel_area, "corner", point=point,
-                            draggable=draggable, invisible=invisible)
-        self.loc = SelectLoc(point=point)
+    def __init__(self, sel_area, **kwargs):
+        super().__init__(sel_area, "corner", **kwargs)
                     
             
     def display(self):

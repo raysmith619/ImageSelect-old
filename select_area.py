@@ -5,7 +5,11 @@ Created on Aug 23, 2018
 """
 from datetime import datetime
 from cmath import rect
+import copy
+
 from select_trace import SlTrace
+from select_fun import *
+
 import tkinter as tk
     
 from select_error import SelectError
@@ -15,13 +19,21 @@ from select_edge import SelectEdge
 from select_region import SelectRegion
 from select_mover import SelectMover, SelectMoveDisplay
 from select_stroke import SelectStroke                    
+from _ast import Or
                      
 class SelectArea(object):
     """
     Selected region of image
     Candidate for selection.
     """
-    
+
+    def __deepcopy__(self, memo=None):
+        """ provide deep copy by just passing shallow copy of self,
+        avoiding tkparts inside sel_area
+        """
+        SlTrace.lg("SelectArea __deepcopy__", "copy")
+        return self
+   
 
     def __init__(self, canvas, mw=None, image=None, rects=None,
                 show_moved=False, show_id=False,
@@ -61,8 +73,9 @@ class SelectArea(object):
             mw = tk.Tk()
             mw.withdraw()       # Hide main window
         self.mw = mw
-
-            
+        self.mw.protocol("WM_DELETE_WINDOW", self.on_exit)
+        self.running = True     # Set false on window delete
+    
         self.check_mod = check_mod
         self.tbmove = tbmove
         self.highlight_limit = highlight_limit                        
@@ -78,6 +91,7 @@ class SelectArea(object):
         self.motion_xy = (-1,-1)
         self.regions = []               # list of regions
         self.down_click_call = down_click_call           # call for processing down events
+        self.stroke_checking = True     # Check for mouse/finger stroking
         self.stroke_info = SelectStroke()         # Any ongoing stroke
         self.stroke_call = None    # Call back if stroke
         self.max_select = max_select
@@ -91,7 +105,15 @@ class SelectArea(object):
         self.canvas.bind ( "<Enter>", self.enter)
         self.canvas.bind ("<Leave>", self.leave)
         self.enable_moves_ = True
-        
+
+    def on_exit(self):
+        """ Window destroyed
+        """
+        self.running = False
+
+    def is_running(self):
+        return self.running
+    
         
     def add_down_click_call(self, down_click_call):
         """ Add processing function for down events
@@ -203,18 +225,23 @@ class SelectArea(object):
         return False            # No such corner present
 
 
-    def is_square_complete(self, part, squares=None):
+    def is_square_complete(self, part, squares=None, ifadd=False):
         """ Determine if this edge completes one or more square(s) region(s)
         :part: - possibly completing edge
         :squares: - any squares completed are appended to this list
                 default: no regions are appended
+        :ifadd: If part is added
+                default: part must already be added
         """
         if part.is_edge():
             SlTrace.lg("complete square testing %s" % part, "square_completion")
             regions = part.get_adjacents()      # Look if we completed any square
             ncomp = 0
             for square in regions:
-                if square.is_complete():
+                if (ifadd and square.is_complete(added=part)
+                    or
+                    square.is_complete()
+                    ):
                     ncomp += 1
                     if squares is not None:
                         squares.append(square)
@@ -223,6 +250,16 @@ class SelectArea(object):
 
         return False
 
+    
+    def is_selected(self, part):
+        """ Check if part is selected
+        :part: part to check
+        """
+        for part_id in self.selects:
+            if part_id == part.part_id:
+                return True
+            
+        return False
     
     def is_first_corner(self, point):
         """ Determine if this is the first point (equal to)
@@ -378,6 +415,10 @@ class SelectArea(object):
         :returns: part, None if not found
         """
         if id is not None:
+            if id not in self.parts_by_id:
+                SlTrace.lg("part not in parts_by_id")
+                return None
+            
             part = self.parts_by_id[id]
             return part
         
@@ -546,15 +587,15 @@ class SelectArea(object):
             chr_w = 5
             chr_h = chr_w*2
             if dir_x != 0:      # sideways
-                offset_x = -len(str(edge.id))*chr_w/2 + chr_w
+                offset_x = -len(str(edge.part_id))*chr_w/2 + chr_w
                 offset_y = chr_h
             if dir_y != 0:      # up/down
-                offset_x = len(str(edge.id))*chr_w
+                offset_x = len(str(edge.part_id))*chr_w
                 offset_y = 0    
         
             cx = (c1x+c3x)/2 + offset_x
             cy = (c1y+c3y)/2 + offset_y
-            edge.name_tag = self.display_text((cx, cy), text=str(edge.id))
+            edge.name_tag = self.display_text((cx, cy), text=str(edge.part_id))
     
     
     def check_pick_part(self, event):
@@ -597,10 +638,10 @@ class SelectArea(object):
             part_ids = list(self.highlights)
             for part_id in part_ids:
                 part = self.parts_by_id[part_id]
+                SlTrace.lg("highlighted %s" % (part), "highlight")
                 if self.down_click_call is not None:
                     res = self.down_click_call(part, event=event)
-                    if res:
-                        continue        # we've done the processing for this part
+                    continue        # we've done the processing for this part
                     
                 self.select_set(part)
                 if part.display_tag is None:
@@ -628,6 +669,29 @@ class SelectArea(object):
         if hasattr(self, 'motion_bind_id') and self.motion_bind_id is not None:
             self.canvas.unbind ("<Motion>", self.motion_bind_id)
             self.motion_bind_id = None
+
+    
+    def list_selected(self, prefix=None):
+        if prefix is None:
+            prefix = ""
+        else:
+            prefix = prefix + " "
+        part_ids = list(self.parts_by_id)
+        n_on = 0
+        for part_id in part_ids:
+            part = self.get_part(id=part_id)
+            if part.is_selected():
+                n_on += 1
+        SlTrace.lg("%sparts selected on(%d of %d):" % (prefix, n_on, len(part_ids)))
+        for part_id in part_ids:
+            part = self.get_part(id=part_id)
+            if part.is_selected():
+                SlTrace.lg("    %s" % (part))
+        if SlTrace.trace("selected_selects"):
+            selecteds = self.get_selects()
+            SlTrace.lg("parts in selecteds:")
+            for part_id in selecteds:
+                SlTrace.lg("    %s" % self.get_part(part_id))
     
     def enter (self, event):
         SlTrace.lg("enter", "enter")
@@ -671,6 +735,7 @@ class SelectArea(object):
         self.motion_xy = (x,y)
         if prev_xy is None:
             prev_xy = self.motion_xy
+        SlTrace.lg("on_motion enable_moves: x,y=%d,%d" % (x,y), "on_motion")
         if self.is_down:
             if self.has_selected():
                 parts = self.get_selected_parts(only_draggable=True)
@@ -806,10 +871,74 @@ class SelectArea(object):
             part.highlight_clear(display=display)
         
         
-    def select_set(self, part_id):
-        """ Select handle
+    def select_clear(self, parts=None):
+        """ Select part(s)
+        :parts: part or list of parts
+                default: all selected
         """
-        self.selects[part_id] = part_id
+        '''parts = select_copy(parts)'''
+        if parts is None:
+            parts = []
+            for part_id in self.selects:
+                parts.append(self.get_part(part_id)) 
+        if not isinstance(parts, list):
+            parts = [parts]
+        if SlTrace.trace("selected"):
+            self.list_selected("select_clear BEFORE")
+        for part in parts:
+            part_id = part.part_id
+            if part_id in self.selects:
+                del self.selects[part_id]
+        if SlTrace.trace("selected"):
+            self.list_selected("select_clear AFTER")
+        
+    def select_set(self, parts, keep=False):
+        """ Select part(s)
+        :parts: part or list of parts
+        :keep: keep previously selected default: False
+        """
+        parts = copy.copy(parts)
+        if not keep:
+            self.select_clear()
+        if not isinstance(parts, list):
+            parts = [parts]
+        for part in parts:
+            part_id = part.part_id
+            self.selects[part_id] = part
+        if SlTrace.trace("selected"):
+            self.list_selected("select_set AFTER")
+
+    
+    
+    def get_selects(self):
+        """ GEt list of selected parts
+        :returns: list, empty if none
+        """
+        return self.selects
+
+
+    
+    
+    def get_selected_part(self):
+        if not self.selects:
+            return None
+        
+        return self.get_part(next(iter(self.selects)))
+
+
+    def has_selects(self):
+        """ Determine if any highlighted parts
+        """
+        if self.selects:
+            return True
+        return False
+    
+    
+    def set_stroke_move(self, use_stroke=True):
+        """ Enable/Disable use of stroke moves
+        Generally for use in touch screens
+        """
+        self.stroke_checking = use_stroke
         
         
     def select_remove(self, selects):
@@ -842,6 +971,8 @@ class SelectArea(object):
         Detection starts self.btmove seconds after the
         most recent 
         """
+        if not self.stroke_checking:
+            return False
         
         now = datetime.now()
         time_diff = (now - self.stroke_info.prev_time).total_seconds()
@@ -1030,7 +1161,7 @@ class SelectArea(object):
         the possibility of having multiple lists as is the
         fact in EnhancedModeler
         """
-        if part.id in self.parts_by_id:
+        if part.part_id in self.parts_by_id:
             return
         
         SlTrace.lg("add_part: %s" % part, "add_part")
@@ -1045,7 +1176,7 @@ class SelectArea(object):
         part.loc_key_ = loc_key
         part.parts_index = len(self.parts)
         self.parts.append(part)
-        self.parts_by_id[part.id] = part
+        self.parts_by_id[part.part_id] = part
         self.parts_by_loc[loc_key] = part
         
                             
@@ -1056,10 +1187,15 @@ class SelectArea(object):
         x,y = cnv.canvasx(event.x), cnv.canvasy(event.y)
         ###got = event.widget.coords (tk.CURRENT, x, y)
         SlTrace.lg("up at x=%d y=%d" % (x,y), "motion")
+        SlTrace.lg("up is ignored", "motion")
+        return
+    
         if self.has_selected():
             ids = list(self.selects)
             for sel_id in ids:
                 self.select_remove(sel_id)
+        if SlTrace.trace("selected"):
+            self.list_selected("up AFTER")
         
         
     def record_move(self, move):

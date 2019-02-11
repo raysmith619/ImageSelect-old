@@ -1,4 +1,6 @@
 # select_player.py
+import copy
+
 from select_error import SelectError
 from select_trace import SlTrace
     
@@ -16,6 +18,8 @@ class SelectPlayer:
                  color_bg = "white",
                  voice = False,
                  help_play = False,
+                 auto = False,
+                 level = 0,
                  pause = 0.,
                  score = 0
                  ):
@@ -34,6 +38,12 @@ class SelectPlayer:
         :voice:  True - add voice to player responses
         :help_play: Help player
                 default: no help
+        :auto: Play automatically (for computer play)
+                default: False -- not a computer
+        :level: Player level >0 - play stronger to win
+                             0 -> random
+                             <0 - play to loose
+                                
         :pause: Pause number of seconds before player play
                 Provides some delay before computer response
         :score: Number of points in game
@@ -59,10 +69,19 @@ class SelectPlayer:
         self.voice = voice
         self.help_play = help_play
         self.pause = pause
+        self.auto = auto
+        self.level = level
         self.score = score
         self.ctls = {}          # Dictionary of field control widgets
         self.ctls_vars = {}     # Dictionary of field control widget variables
 
+
+    def copy(self):
+        """ Object copy routine - copy enough - shallow copy
+        """
+        return copy.copy(self)
+    
+    
     def get_prop_key(self, name):
         """ Translate full  control name into full Properties file key
         """
@@ -109,6 +128,15 @@ class SelectPlayer:
     def __str__(self):
         """ Provide reasonable view of player
         """
-        return (self.name
-                 + " %s" % self.label
-                 + " %s" % self.color)
+        name = self.name
+        if name is None:
+            name = "name:None"
+        label = self.label
+        if label is None:
+            label = "label:None"
+        color = self.color
+        if color is None:
+            color = "color:None"    
+        return (name
+                 + " %s" % label
+                 + " %s" % color)

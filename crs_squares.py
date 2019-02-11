@@ -13,17 +13,33 @@ from select_window import SelectWindow
 from select_play import SelectPlay
 from select_trace import SlTrace
 from arrange_control import ArrangeControl
-from select_region import SelectRegion
+###from select_region import SelectRegion
 from select_squares import SelectSquares
 from select_arrange import SelectArrange
 from player_control import PlayerControl
 from select_command import SelectCommand
 from command_file import CommandFile
 
+
+sp = None
+    
 def pgm_exit():
     SlTrace.lg("Properties File: %s"% SlTrace.getPropPath())
     SlTrace.lg("Log File: %s"% SlTrace.getLogPath())
     sys.exit(0)
+
+def play_exit():
+    """ End playing
+    Called from Window control
+    """
+    
+    global sp
+    SlTrace.lg("play_exit: Exiting from play")
+    if sp is not None:
+        sp.delete_window()
+        
+    SlTrace.lg("play_exit AFTER delete_window")
+    sys.exit()
 
 
 def str2bool(v):
@@ -34,11 +50,15 @@ def str2bool(v):
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
+sys.setrecursionlimit(500)
 
+loop = -5        # Repeat game after end after waiting interval, negative = no looping
 nx = 5              # Number of x divisions
 ny = nx             # Number of y divisions
+run_game = True		# Run game upon starting
 show_id = False     # Display component id numbers
 show_score = True   # Display score / undo /redo
+stroke_move = True  # Support stroke move for touch screens
 width = 600         # Window width
 height = width      # Window height
 
@@ -60,10 +80,13 @@ parser.add_argument('--btmove', type=float, dest='btmove', default=btmove)
 parser.add_argument('--ew_display', type=int, dest='ew_display', default=ew_display)
 parser.add_argument('--ew_select', type=int, dest='ew_select', default=ew_select)
 parser.add_argument('--ew_standoff', type=int, dest='ew_standoff', default=ew_standoff)
+parser.add_argument('--loop', type=float, dest='loop', default=loop)
 parser.add_argument('--nx=', type=int, dest='nx', default=nx)
 parser.add_argument('--ny=', type=int, dest='ny', default=ny)
+parser.add_argument('--run_game', type=str2bool, dest='run_game', default=run_game)
 parser.add_argument('--show_id', type=str2bool, dest='show_id', default=show_id)
 parser.add_argument('--show_score', type=str2bool, dest='show_score', default=show_score)
+parser.add_argument('--stroke_move', type=str2bool, dest='stroke_move', default=stroke_move)
 parser.add_argument('--trace', dest='trace', default=trace)
 parser.add_argument('--width=', type=int, dest='width', default=width)
 parser.add_argument('--height=', type=int, dest='height', default=height)
@@ -71,11 +94,13 @@ args = parser.parse_args()             # or die "Illegal options"
 SlTrace.lg("args: %s\n" % args)
 
 btmove = args.btmove
+loop = args.loop
 nx = args.nx
 ny = args.ny
 nsq = nx * ny
 show_id = args.show_id
 show_score = args.show_score
+stroke_move = args.stroke_move
 trace = args.trace
 if trace:
     SlTrace.setFlags(trace)
@@ -95,14 +120,14 @@ figure_new = True           # True - time to setup new figure
 n_arrange = 1               #number of major cycle for rearrange
 sqs = None
 
-sp = None
 move_no_label = None
 
 def check_mod(part, mod_type=None, desc=None):
     global sp
     """ called before and after each part modificatiom
     """
-    sp.check_mod(part, mod_type=mod_type, desc=desc)
+    if sp is not None:
+    	sp.check_mod(part, mod_type=mod_type, desc=desc)
 app = None                  # Application window ref
 frame = None
 ###canvas = None
@@ -110,7 +135,7 @@ frame = None
 mw = Tk()
 app = SelectWindow(mw,
                 title="crs_squares Testing",
-                pgmExit=pgm_exit,
+                pgmExit=play_exit,
                 cmd_proc=True,
                 cmd_file=None,
                 arrange_selection=False
@@ -150,9 +175,14 @@ def before_move(scmd):
     global move_no_label
     
     SlTrace.lg("before_move")
+    if SlTrace.trace("selected"):
+        sp.list_selected("before_move")
+
     
 def after_move(scmd):
     SlTrace.lg("after_move")
+    if SlTrace.trace("selected"):
+        sp.list_selected("after_move")
     
     
 def undo():
@@ -171,7 +201,14 @@ def redo():
     else:
         res = sp.redo()
         return res
-    
+
+
+def end_game():
+    if loop >= 0:
+        SlTrace.lg("Restarting game after %.1f seconds" % loop)
+        mw.after(int(loop*1000), new_game)
+
+        
     
 def set_squares_button():
     global frame, sqs
@@ -187,6 +224,10 @@ def set_squares_button():
     ###        canvas = None
     if frame is not None:
         SlTrace.lg("destroy frame", "destroy frame")
+        if sp is not None:
+            if sp.score_win is not None:
+                sp.score_win.destroy()
+                sp.score_win = None
         frame.destroy()
         frame = None
     
@@ -231,58 +272,25 @@ def set_squares_button():
     sqs = SelectSquares(canvas, nrows=ny, ncols=nx,
                         width=width, height=height,
                         check_mod=check_mod)
-    sp = SelectPlay(board=sqs, mw=mw, move_first=1, before_move=before_move,
+    sqs.display()
+    sp = SelectPlay(board=sqs, mw=mw, run=False,
+                    on_exit=pgm_exit,
+                    on_end=end_game,
+                    move_first=1, before_move=before_move,
                     after_move=after_move)
+    sp.set_stroke_move(stroke_move)
     if show_score:
         score_window()
-    sqs.display()        
-    sp.do_first_time()
-
+    if run_game:
+        run_cmd()
+        
+        
 def score_window():
     """ Setup score /undo/redo window
     """
     global sp
-        
-    move_win_x0 = 750
-    move_win_y0 = 650
-    geo = "+%d+%d" % (move_win_x0, move_win_y0)
-    win = Tk()
-
-    win.geometry(geo)
-    move_frame = Frame(win)
-    move_frame.pack()
-    move_no_frame = Frame(move_frame)
-    move_no_frame.pack()
-    move_no = 0
-    move_no_str = "Move: %d" % move_no
-    move_font = ('Helvetica', '25')
-    move_no_label = Label(move_no_frame,
-                          text=move_no_str,
-                          font=move_font
-                          )
-    move_no_label.pack(side="left", expand=True)
-    ###move_no_label.config(width=2, height=1)
-    bw = 5
-    bh = 1
-    undo_font = ('Helvetica', '50')
-    undo_button = Button(master=move_frame, text="Undo",
-                        font=undo_font,
-                        command=undo)
-    undo_button.pack(side="left", expand=True)
-    undo_button.config(width=bw, height=bh)
-    redo_button = Button(master=move_frame, text="ReDo",
-                         font=undo_font,
-                        command=redo)
-    redo_button.pack(side="left", expand=True)
-    redo_button.config(width=bw, height=bh)
-
     if sp is not None:
-        sp.setup_score_window(move_no_label=move_no_label)
-        sp.update_score_window()
-
-def update_score_window():
-    if sp is not None:
-        sp.update_score_window()    
+        sp.score_window()
 
     
 def vs(val):
@@ -317,13 +325,33 @@ def change_players():
 def cmd_file():
     """ Setup command file processing
     """
-    cF = CommandFile(title="Command File",
+    CommandFile(title="Command File",
                      cmd_execute=sp.user_cmd)    
-    
+
+
+def run_cmd():
+    """ Run / continue game
+	"""
+    global sp
+    if sp is not None:
+        sp.run_cmd()
+
+
+def pause_cmd():
+    """ Pause game
+	"""
+    global sp
+    if sp is not None:
+        sp.pause_cmd()
+
+
+	    
 app.add_menu_command("NewGame", new_game)
 app.add_menu_command("Players", change_players)
 app.add_menu_command("Score", score_window)
 app.add_menu_command("CmdFile", cmd_file)
+app.add_menu_command("Run", run_cmd)
+app.add_menu_command("Pause", pause_cmd)
 set_squares_button()
 
 mainloop()

@@ -1,4 +1,7 @@
-# select_edge.py        
+# select_edge.py
+
+import copy
+        
 from select_trace import SlTrace
 from select_error import SelectError
 from select_loc import SelectLoc
@@ -15,11 +18,33 @@ class SelectEdge(SelectPart):
     fill = "blue"   # Default edge color
     fill_highlight = "purple"   # Default edge highlight color
 
+
+    '''Use default copy.deepcopy()
+    def __deepcopy__(self, memo=None):
+        """ provide deep copy as a custimized "constructor",
+        reducing recusion
+        """
+        res = self.copy()        
+        return res
+    '''
+
+    ''' Use SelectPart.copy
+    def copy(self):
+        """ Return copy of self, independent to allow independent modifications
+        """
+        self.part_check(prefix="copy before")
+        new_copy = copy.copy(self)
+        self.part_check(new_copy, prefix="copy before set_copy")
+        new_copy.set_copy(self)
+        self.part_check(new_copy)
+        return new_copy
+    '''
     
-    def __init__(self, sel_area, rect=None, draggable=True, invisible=False):
-        SelectPart.__init__(self, sel_area, "edge", rect=rect,
-                            draggable=draggable, invisible=invisible)
-        self.loc = SelectLoc(rect=rect)
+    def __init__(self, sel_area, **kwargs):
+        """ Setup region
+        :sel_area: reference to basis, Needed to display
+        """
+        super().__init__(sel_area, "edge", **kwargs)
 
 
     
@@ -28,17 +53,20 @@ class SelectEdge(SelectPart):
         We leave room for the corners at each end
         Highlight if appropriate
         """
+        self.part_check(prefix="display")
         if SlTrace.trace("dbg"):
             SlTrace.lg("dbg")
         self.display_clear()
             
-        if self.invisible and not self.highlighted and not self.turned_on:
+        if (self.invisible and not self.highlighted and not self.turned_on
+                and not self.is_selected()):
+            self.display_clear()
             return
         
         c1x, c1y, c3x, c3y = self.get_rect()        # Vales are modified if appropriate
         loc = self.loc
         SlTrace.lg("%s: %s at %s" % (self.part_type, self, str(loc)), "display")
-        if self.highlighted:
+        if self.highlighted or self.is_selected():
             if self.turned_on:
                 if self.on_highlighting:
                     if self.player is not None:     # Check if indicators on
@@ -57,6 +85,7 @@ class SelectEdge(SelectPart):
                     self.blink(self.display_multi_tags)
                 else:
                     c1x,c1y,c3x,c3y = self.get_rect()
+                    self.display_clear()
                    
         else:           # Not highlighted
             self.display_clear()
@@ -68,15 +97,15 @@ class SelectEdge(SelectPart):
             chr_w = 5
             chr_h = chr_w*2
             if dir_x != 0:      # sideways
-                offset_x = -len(str(self.id))*chr_w/2 + chr_w
+                offset_x = -len(str(self.part_id))*chr_w/2 + chr_w
                 offset_y = chr_h
             if dir_y != 0:      # up/down
-                offset_x = len(str(self.id))*chr_w
+                offset_x = len(str(self.part_id))*chr_w
                 offset_y = 0    
         
             cx = (c1x+c3x)/2 + offset_x
             cy = (c1y+c3y)/2 + offset_y
-            self.name_tag = self.display_text((cx, cy), text=str(self.id))
+            self.name_tag = self.display_text((cx, cy), text=str(self.part_id))
         if self.move_no is not None and SlTrace.trace("show_move"):
             dir_x, dir_y = self.edge_dxy()
             chr_w = 5
@@ -137,6 +166,7 @@ class SelectEdge(SelectPart):
                 If icolor None - SelectPart.edge_fill_highlight
         If len(fills) == 2 fills[2] == fills[1]
         """
+        self.clear_display_multi_tags()
         if player is None:
             player = self.player
         if player is not None:
@@ -342,6 +372,8 @@ class SelectEdge(SelectPart):
         c1x,c1y,c3x,c3y = SelectLoc.order_ul_lr(c1x,c1y,c3x,c3y)
         """ Leave room at each end for corner """
         corner1 = self.get_corner(c1x, c1y)
+        if corner1 is None:
+            SlTrace.lg("None corner1")
         _, _, corner1_xsize, corner1_ysize = corner1.get_center_size()
         corner3 = self.get_corner(c3x, c3y)
         corner3_x, corner3_y, corner3_xsize, corner3_ysize = corner3.get_center_size()
@@ -379,6 +411,8 @@ class SelectEdge(SelectPart):
         min_corner = None
         min_distance = None
         corners = self.get_corners()
+        if not corners:
+            SlTrace.lg("No corners")
         for corner in corners:
             if min_corner is None or corner.distance(cx,cy) < min_distance:
                 min_corner = corner

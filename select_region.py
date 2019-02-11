@@ -1,5 +1,6 @@
 # select_region.py        
 
+import copy
 
 from select_trace import SlTrace
 from select_error import SelectError
@@ -8,6 +9,7 @@ from select_part import SelectPart
 from select_edge import SelectEdge
 from select_part import color_to_fill
 from select_centered_text import CenteredText        
+###from select_area import SelectArea
         
 class SelectRegion(SelectPart):
     fill = "clear"                  # Default region color
@@ -17,20 +19,22 @@ class SelectRegion(SelectPart):
     @classmethod
     def reset(cls):
         cls.partno = 0
+
+    '''Use default copy.deepcopy()
+    def __deepcopy__(self, memo=None):
+        """ provide deep copy as a custimized "constructor",
+        reducing recusion
+        """
+        res = self.copy()        
+        return res
+    '''
         
             
-    def __init__(self, sel_area, rect=None, color=None,
-                draggable=True,
-                invisible=False,
-                row=None, col=None):
+    def __init__(self, sel_area, **kwargs):
         """ Setup region
         :sel_area: reference to basis, Needed to display
         """
-        SelectPart.__init__(self, sel_area, "region",
-                            draggable=draggable,
-                            invisible=invisible,
-                            rect=rect, color=color,
-                            row=row, col=col)
+        super().__init__(sel_area, "region", **kwargs)
         SelectRegion.partno += 1
         self.partno = SelectRegion.partno
 
@@ -259,7 +263,7 @@ class SelectRegion(SelectPart):
                 SlTrace.lg("Strange?")
                 for connected in self.connecteds:
                     SlTrace.lg("%d: %s loc_key: %s"
-                                % (connected.id, connected.part_type, connected.loc_key()))
+                                % (connected.part_id, connected.part_type, connected.loc_key()))
             
             
             
@@ -272,13 +276,42 @@ class SelectRegion(SelectPart):
         self.display()
 
 
-    def is_complete(self):
+    def is_complete(self, added=None):
         """ Check if this is complete
+            == all edges are turned on
+        :added: one or list of parts to add for completion
+        """
+        if added is not None:
+            if not isinstance(added, list):
+                added = [added]
+            for conn in self.get_connecteds():
+                if not conn.is_edge():
+                    continue
+                if conn.is_turned_on():
+                    continue
+                if conn in added:
+                    continue
+                return False
+                
+        else:        
+            for conn in self.get_connecteds():
+                if conn.is_edge() and not conn.is_turned_on():
+                    return False
+        if SlTrace.trace("complete_test"):
+            SlTrace.lg("%s is complete" % self)
+            self.display_info(tag="  complete")
+            pass    
+        return True         # No non-turned on
+
+
+    def would_complete(self, edge):
+        """ Check if this edge, if turned on, would complete this region
             == all edges are turned on
         """
         for conn in self.get_connecteds():
-            if conn.is_edge() and not conn.is_turned_on():
-                return False
+            if conn.is_edge():
+                if not conn.is_turned_on() and not conn.same_part(edge):
+                    return False
         if SlTrace.trace("complete_test"):
             SlTrace.lg("%s is complete" % self)
             self.display_info(tag="  complete")

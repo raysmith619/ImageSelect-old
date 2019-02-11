@@ -61,6 +61,15 @@ class BlinkerMultiState:
     
     The group will display for on_time then rotated one group and redisplayed
     """
+
+    def __deepcopy__(self, memo=None):
+        """ provide deep copy by just passing shallow copy of self,
+        avoiding tkparts inside sel_area
+        """
+        SlTrace.lg("SelectArea __deepcopy__", "copy")
+        return self
+
+    
     def __init__(self, part, tagtags=None,
                  on_time=None):
         """ Setup multi state blinker
@@ -89,6 +98,11 @@ class BlinkerMultiState:
         """
         if self.part is None:
             return False
+        if SlTrace.trace("dbg"):
+            SlTrace.lg("is_blinking")
+            
+        if not self.part.is_highlighted() and not self.part.is_selected():
+            return False                    # Only blink highlighted
         
         if not self.multitags:
             return False

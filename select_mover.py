@@ -81,7 +81,7 @@ class SelectMover(object):
         move.mover = self               # refer to mover        
         self.moves.append(move)
         part = move.part
-        self.moves_by_id[part.id] = move
+        self.moves_by_id[part.part_id] = move
         if move.move_type == SelectMove.MT_WHOLE:
             self.add_adjusts(part)          # Adjust all connected parts
 
@@ -155,7 +155,7 @@ class SelectMover(object):
     def is_moved(self, part):
         """ Determine if part has already been placed in current move list
         """
-        if part.id in self.moves_by_id:
+        if part.part_id in self.moves_by_id:
             return True
         
         return False
@@ -190,7 +190,7 @@ class SelectMover(object):
                 self.adjust_part(part, delta_x, delta_y, indexes=move.indexes)
             elif move_type == SelectMove.MT_WHOLE:
                 self.adjust_part(part, delta_x, delta_y)
-            displayed_parts[part.id] = part
+            displayed_parts[part.part_id] = part
 
         """ Adjust affected regions:
             Assume they are only the regions connected to the moved parts
@@ -199,10 +199,10 @@ class SelectMover(object):
             connecteds = move.part.connecteds
             for part in connecteds:
                 if part.is_region():
-                    displayed_parts[part.id] = part  # Adjust only once
+                    displayed_parts[part.part_id] = part  # Adjust only once
                     reg_connecteds = part.connecteds    # Get things connected to region
                     for reg_part in reg_connecteds:
-                        displayed_parts[reg_part.id] = reg_part     # affected by region redraw
+                        displayed_parts[reg_part.part_id] = reg_part     # affected by region redraw
                     
         self.display(parts=displayed_parts.values())
             

@@ -3,9 +3,11 @@
 Player control window layout
 
 players
-Name      Label    Playing  Color    col bg  Voice Help  Pause    
---------- ------   -        -------  ------  ----  -----  -----
-computer  co       ()       gray     white   ( )   ( )    1.0
+Name      Label    Playing  Color    col bg  Voice Help   Pause Auto level
+    
+--------- ------   -        -------  ------  ----  -----  ----- ---- -----
+comp1     c1       ()       gray     white   ( )   ( )    .1    x    0
+comp2     c2       ()       gray     white   ( )   ( )    .1    x    -1
 Alex      Ax       (.)      pink     white   (.)   ( )
 Decklan   D        ()       blue     white   (.)   ( )
 Avery     Av       ()       pink     white   (.)   ( )
@@ -46,8 +48,8 @@ class PlayerControl(Toplevel):
             voice               bool
             help_play           bool
             pause               float
-        
-        
+            auto                bool
+            level               int 
         """
         ###Toplevel.__init__(self, parent)
         self.ctlbase = ctlbase
@@ -108,6 +110,10 @@ class PlayerControl(Toplevel):
                     else:
                         player_val = prop_val
                     setattr(player, player_attr, player_val)
+                    if player_attr == "color":
+                        player.icolor =  player.color
+                    elif player_attr == "color_bg":
+                        player.icolor2 = player.color_bg
                     self.players[player_id] = player
         
         if title is None:
@@ -165,7 +171,8 @@ class PlayerControl(Toplevel):
                          "playing",
                          "position",
                          "color", "color_bg",
-                         "voice", "help_play", "pause"]
+                         "voice", "help_play", "pause",
+                         "auto", "level"]
         col_infos = []
         for field in player_fields:
             heading = self.get_heading(field)
@@ -377,8 +384,12 @@ class PlayerControl(Toplevel):
             self.set_player_frame_help(frame, player, value, width=width)
         elif field_name == "pause":
             self.set_player_frame_pause(frame, player, value, width=width)
+        elif field_name == "auto":
+            self.set_player_frame_auto(frame, player, value, width=width)
+        elif field_name == "level":
+            self.set_player_frame_level(frame, player, value, width=width)
         else:
-            raise("Unrecognized player field_name: %s" % field_name)    
+            raise SelectError("Unrecognized player field_name: %s" % field_name)    
 
     def get_num_playing(self):
         """ Calculate number playing
@@ -463,6 +474,22 @@ class PlayerControl(Toplevel):
         yes_button.pack(side="left", expand=True)
         player.ctls["pause"] = yes_button
         player.ctls_vars["pause"] = content
+
+    def set_player_frame_auto(self, frame, player, value, width=None):
+        content = BooleanVar()
+        content.set(value)
+        yes_button = Checkbutton(frame, variable=content, width=width)
+        yes_button.pack(side="left", fill="none", expand=True)
+        player.ctls["auto"] = yes_button
+        player.ctls_vars["auto"] = content
+
+    def set_player_frame_level(self, frame, player, value, width=None):
+        content = IntVar()
+        content.set(value)
+        yes_button = Entry(frame, textvariable=content, width=width)
+        yes_button.pack(side="left", expand=True)
+        player.ctls["level"] = yes_button
+        player.ctls_vars["level"] = content
 
 
     def set_vals(self):
